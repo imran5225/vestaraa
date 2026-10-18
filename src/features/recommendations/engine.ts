@@ -15,12 +15,12 @@ import {
 } from "@/lib/domain";
 
 export const SCORING_WEIGHTS = {
-  occasion: 0.28,
-  colorHarmony: 0.22,
-  styleConsistency: 0.15,
-  preferences: 0.15,
-  feedback: 0.12,
-  weather: 0.08,
+  occasion: 0.24,
+  colorHarmony: 0.2,
+  styleConsistency: 0.14,
+  preferences: 0.14,
+  feedback: 0.18,
+  weather: 0.1,
 } as const;
 
 export type ScoringWeights = Record<keyof typeof SCORING_WEIGHTS, number>;
@@ -162,7 +162,7 @@ function preferenceScore(items: EngineItem[], ctx: EngineContext): number {
 function feedbackScore(items: EngineItem[], signature: string, fb: FeedbackSignals): number {
   let score = 0.5;
   for (const item of items) {
-    score += 0.08 * (fb.itemAffinity[item.id] ?? 0);
+    score += 0.15 * (fb.itemAffinity[item.id] ?? 0);
     if (item.main_color) score += 0.05 * (fb.colorAffinity[item.main_color] ?? 0);
   }
   if (fb.likedSignatures.includes(signature)) score += 0.25;
