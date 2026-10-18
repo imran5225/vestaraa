@@ -145,7 +145,7 @@ export function styleConsistency(items: EngineItem[]): number {
   const ranks = items.map((i) => (i.style ? STYLE_ORDER.indexOf(i.style) : -1)).filter((r) => r >= 0);
   if (ranks.length < 2) return 0.6;
   const spread = Math.max(...ranks) - Math.min(...ranks);
-  return clamp01(1 - spread * 0.22);
+  return clamp01(1 - spread * 0.15);
 }
 
 function preferenceScore(items: EngineItem[], ctx: EngineContext): number {
