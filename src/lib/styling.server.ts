@@ -1,6 +1,6 @@
 // Server-only data access + orchestration for recommendations and feedback.
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
+import type { Database, Json } from "@/integrations/supabase/types";
 import {
   buildFeedbackSignals,
   explainOutfit,
@@ -51,7 +51,7 @@ export async function loadStylingContext(supabase: Db, userId: string) {
 
 export function buildEngineContext(
   loaded: Awaited<ReturnType<typeof loadStylingContext>>,
-  opts: { occasion: string; mood?: string | null; weather?: WeatherContext | null; excludeItemIds?: string[] },
+  opts: { occasion: string; mood?: string | null | undefined; weather?: WeatherContext | null | undefined; excludeItemIds?: string[] | undefined },
 ): EngineContext {
   return {
     occasion: opts.occasion,
@@ -72,11 +72,11 @@ export async function persistOutfit(
   input: {
     outfit: Pick<ScoredOutfit, "slots" | "score" | "signature">;
     occasion: string;
-    mood?: string | null;
+    mood?: string | null | undefined;
     explanation: string;
     source: "rules" | "ai";
-    weather?: WeatherContext | null;
-    parentOutfitId?: string | null;
+    weather?: WeatherContext | null | undefined;
+    parentOutfitId?: string | null | undefined;
   },
 ) {
   const slots = input.outfit.slots;
@@ -91,7 +91,7 @@ export async function persistOutfit(
       source: input.source,
       piece_count: Object.keys(slots).length,
       signature: input.outfit.signature,
-      weather: (input.weather ?? null) as Database["public"]["Tables"]["outfits"]["Insert"]["weather"],
+      weather: (input.weather ?? null) as unknown as Json,
       parent_outfit_id: input.parentOutfitId ?? null,
     })
     .select("id")

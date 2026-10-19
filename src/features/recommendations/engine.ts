@@ -39,15 +39,15 @@ export interface FeedbackSignals {
 
 export interface EngineContext {
   occasion: string;
-  mood?: string | null;
+  mood?: string | null | undefined;
   favoriteColors: string[];
   avoidedColors: string[];
   preferredStyles: string[];
   feedback: FeedbackSignals;
-  weather?: WeatherContext | null;
-  recentSignatures?: string[];
-  excludeItemIds?: string[];
-  weights?: ScoringWeights;
+  weather?: WeatherContext | null | undefined;
+  recentSignatures?: string[] | undefined;
+  excludeItemIds?: string[] | undefined;
+  weights?: ScoringWeights | undefined;
 }
 
 export interface ScoredOutfit {
@@ -121,7 +121,7 @@ export function colorHarmony(items: EngineItem[]): number {
   let pairs = 0;
   for (let i = 0; i < items.length; i++) {
     for (let j = i + 1; j < items.length; j++) {
-      total += colorPairScore(items[i].main_color, items[j].main_color);
+      total += colorPairScore(items[i]!.main_color, items[j]!.main_color);
       pairs++;
     }
   }
@@ -133,7 +133,7 @@ export function colorHarmony(items: EngineItem[]): number {
 
 export function occasionFit(item: EngineItem, occasion: string, mood?: string | null): number {
   if (!item.style) return 0.6;
-  const wanted = [...(OCCASION_STYLES[occasion] ?? OCCASION_STYLES.casual)];
+  const wanted = [...(OCCASION_STYLES[occasion] ?? OCCASION_STYLES["casual"] ?? [])];
   const moodStyle = mood ? MOOD_STYLE[mood.toLowerCase()] : undefined;
   if (moodStyle) wanted.unshift(moodStyle);
   const idx = wanted.indexOf(item.style);
@@ -287,7 +287,9 @@ export function recommendOutfit(
   ranked.sort((a, b) => b.score - a.score);
   const recent = new Set(ctx.recentSignatures ?? []);
   const fresh = ranked.find((o) => !recent.has(o.signature));
-  return { ok: true, outfit: fresh ?? ranked[0], alternatives: ranked.length - 1 };
+  const chosen = fresh ?? ranked[0];
+  if (!chosen) return { ok: false, missing: [], reason: "No valid outfit could be composed." };
+  return { ok: true, outfit: chosen, alternatives: ranked.length - 1 };
 }
 
 /** Replace one slot, keeping every other piece. Revalidates the result. */
@@ -311,6 +313,7 @@ export function swapSlot(
     .map((c) => scoreOutfit([...kept, c], ctx))
     .sort((a, b) => b.score - a.score);
   const result = options[0];
+  if (!result) return { ok: false, missing: [slot], reason: "No swap candidate fits." };
   const invalid = REQUIRED_SLOTS.filter((s) => !result.slots[s]);
   if (invalid.length) {
     return { ok: false, missing: invalid, reason: "The revised outfit is missing required pieces." };
