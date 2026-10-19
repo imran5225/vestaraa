@@ -27,7 +27,7 @@ export async function generateStructured<T>(opts: {
   });
   const result = streamText({
     model: provider.responses(MODEL),
-    instructions: opts.instructions,
+    system: opts.instructions,
     messages: opts.messages,
     output: Output.object({ schema: opts.schema }),
     providerOptions: {
