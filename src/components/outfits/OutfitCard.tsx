@@ -43,7 +43,7 @@ export function OutfitCard({ outfit, onReplaced, compact }: Props) {
   const swap = useMutation({
     mutationFn: (slot: Slot) => swapFn({ data: { outfitId: outfit.id, slot } }),
     onSuccess: (r) => {
-      if (!r.ok) return toast.error(r.reason);
+      if (!r.ok) { toast.error(r.reason); return; }
       refresh();
       toast.success("Piece swapped — the rest of the look stays.");
       onReplaced?.(r.outfitId);
