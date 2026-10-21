@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Pencil, Plus, Shirt, Trash2, Wand2 } from "lucide-react";
+import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Trash2, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/layout/AppShell";
@@ -147,7 +147,7 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
       </Select>
     </div>
   );
-  const asOpts = (a: readonly string[]) => a.map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }));
+  const asOpts = (a: readonly string[]) => a.map((v) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }));
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -155,9 +155,20 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         <DialogHeader><DialogTitle>{d.id ? "Edit piece" : "Add a piece"}</DialogTitle></DialogHeader>
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="photo">Photo</Label>
+            <Label>Photo</Label>
             {preview && <img src={preview} alt="" className="h-40 rounded-lg object-cover" />}
-            <Input id="photo" type="file" accept="image/*" onChange={(e) => pick(e.target.files?.[0])} />
+            <div className="grid grid-cols-2 gap-2">
+              <Button type="button" variant="quiet" asChild>
+                <label className="cursor-pointer"><Camera /> Take photo
+                  <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => pick(e.target.files?.[0])} />
+                </label>
+              </Button>
+              <Button type="button" variant="quiet" asChild>
+                <label className="cursor-pointer"><ImageIcon /> From gallery
+                  <input type="file" accept="image/*" className="sr-only" onChange={(e) => pick(e.target.files?.[0])} />
+                </label>
+              </Button>
+            </div>
             {analyzing && <p className="flex items-center gap-1 text-xs text-muted-foreground"><Wand2 className="h-3 w-3 animate-pulse" /> Reading your photo…</p>}
           </div>
           <div className="space-y-1.5"><Label htmlFor="name">Name</Label><Input id="name" value={d.name} maxLength={80} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Navy oxford shirt" /></div>
