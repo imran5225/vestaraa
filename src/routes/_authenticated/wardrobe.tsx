@@ -140,7 +140,7 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         if (up.error) throw up.error;
         image_path = path;
       }
-      const name = d.name.trim() || `${d.main_color} ${categoryLabel(d.category).split(" ")[0].toLowerCase()}`;
+      const name = d.name.trim() || `${d.main_color} ${(categoryLabel(d.category).split(" ")[0] ?? "piece").toLowerCase()}`;
       const row = {
         name, category: d.category, main_color: d.main_color, pattern: d.pattern, style: d.style, seasons: d.seasons, image_path,
         ...(detected ? { ai_colors: colors, ai_outfit_suggestions: ideas } : {}),
