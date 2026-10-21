@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Trash2, Wand2 } from "lucide-react";
+import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/layout/AppShell";
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CATEGORIES, COLORS, PATTERNS, SEASONS, STYLES, categoryLabel, type WardrobeItem } from "@/lib/domain";
+import { CATEGORIES, SEASONS, categoryLabel, type WardrobeItem } from "@/lib/domain";
 import { currentUserId, useSignedUrls, wardrobeQuery } from "@/lib/queries";
 import { analyzeGarment } from "@/lib/styling.functions";
 import { useLoadSamples } from "./dashboard";
