@@ -8,6 +8,13 @@
       "when": 1792351160299,
       "tag": "0000_vestara_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792569619580,
+      "tag": "0001_wardrobe_ai_fields",
+      "breakpoints": true
     }
   ]
 }
