@@ -2,7 +2,7 @@ import { useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Trash2, Wand2 } from "lucide-react";
+import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/layout/AppShell";
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CATEGORIES, COLORS, PATTERNS, SEASONS, STYLES, categoryLabel, type WardrobeItem } from "@/lib/domain";
+import { CATEGORIES, SEASONS, categoryLabel, type WardrobeItem } from "@/lib/domain";
 import { currentUserId, useSignedUrls, wardrobeQuery } from "@/lib/queries";
 import { analyzeGarment } from "@/lib/styling.functions";
 import { useLoadSamples } from "./dashboard";
@@ -87,6 +87,9 @@ function fileToDataUrl(file: File) {
   return new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(file); });
 }
 
+type AiColor = { name: string; hex: string };
+type AiIdea = { title: string; pieces: string[]; colour_reasoning: string };
+
 function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const qc = useQueryClient();
   const analyze = useServerFn(analyzeGarment);
@@ -95,7 +98,11 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
   const [preview, setPreview] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [detected, setDetected] = useState(false);
+  const [colors, setColors] = useState<AiColor[]>([]);
+  const [ideas, setIdeas] = useState<AiIdea[]>([]);
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
+  const failMsg = "Couldn't analyse this photo, you can fill details manually.";
 
   async function pick(f: File | undefined) {
     if (!f) return;
@@ -104,20 +111,25 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     const url = await fileToDataUrl(f);
     setPreview(url);
     setAnalyzing(true);
+    setDetected(false);
     try {
       const r = await analyze({ data: { imageDataUrl: url } });
       if (r.status === "ok") {
-        if (!r.suggestion.isGarment) toast.warning("That doesn't look like clothing — please check the details.");
-        setD((p) => ({ ...p, name: p.name || r.suggestion.name, category: r.suggestion.category, main_color: r.suggestion.main_color, pattern: r.suggestion.pattern, style: r.suggestion.style, seasons: r.suggestion.seasons }));
-        toast.success("Details filled in — adjust anything that's off.");
-      } else if (r.status === "error") toast.error(r.message);
-    } catch { toast.error("Photo analysis failed. Fill in the details manually."); }
+        const s = r.suggestion;
+        if (!s.isGarment) toast.warning("That doesn't look like clothing — please check the details.");
+        setD((p) => ({ ...p, name: p.name || s.name, category: s.category, main_color: s.main_color, pattern: s.pattern, style: s.style, seasons: s.seasons }));
+        setColors(s.dominant_colors.slice(0, 3));
+        setIdeas(s.outfit_suggestions.slice(0, 3));
+        setDetected(true);
+      } else if (r.status === "error") {
+        toast.error(/credits|busy|limit/i.test(r.message) ? r.message : failMsg);
+      } else toast.error(failMsg);
+    } catch { toast.error(failMsg); }
     setAnalyzing(false);
   }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!d.name.trim()) return void toast.error("Give this piece a name.");
     setSaving(true);
     try {
       const uid = await currentUserId();
@@ -128,7 +140,11 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         if (up.error) throw up.error;
         image_path = path;
       }
-      const row = { name: d.name.trim(), category: d.category, main_color: d.main_color, pattern: d.pattern, style: d.style, seasons: d.seasons, image_path };
+      const name = d.name.trim() || `${d.main_color} ${(categoryLabel(d.category).split(" ")[0] ?? "piece").toLowerCase()}`;
+      const row = {
+        name, category: d.category, main_color: d.main_color, pattern: d.pattern, style: d.style, seasons: d.seasons, image_path,
+        ...(detected ? { ai_colors: colors, ai_outfit_suggestions: ideas } : {}),
+      };
       const res = d.id ? await supabase.from("wardrobe_items").update(row).eq("id", d.id) : await supabase.from("wardrobe_items").insert({ ...row, user_id: uid });
       if (res.error) throw res.error;
       qc.invalidateQueries({ queryKey: ["wardrobe"] });
@@ -138,17 +154,6 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
     setSaving(false);
   }
 
-  const sel = (k: "category" | "main_color" | "pattern" | "style", label: string, opts: readonly { value: string; label: string }[]) => (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <Select value={d[k]} onValueChange={(v) => set(k, v)}>
-        <SelectTrigger><SelectValue /></SelectTrigger>
-        <SelectContent>{opts.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
-      </Select>
-    </div>
-  );
-  const asOpts = (a: readonly string[]) => a.map((v) => ({ value: v, label: v.charAt(0).toUpperCase() + v.slice(1) }));
-
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -156,7 +161,12 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
         <form onSubmit={submit} className="space-y-4">
           <div className="space-y-1.5">
             <Label>Photo</Label>
-            {preview && <img src={preview} alt="" className="h-40 rounded-lg object-cover" />}
+            {preview && (
+              <div className="relative h-40 w-fit overflow-hidden rounded-lg">
+                <img src={preview} alt="" className="h-40 rounded-lg object-cover" />
+                {analyzing && <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-background/60 to-transparent" />}
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-2">
               <Button type="button" variant="quiet" asChild>
                 <label className="cursor-pointer"><Camera /> Take photo
@@ -169,24 +179,64 @@ function ItemDialog({ draft, onClose }: { draft: Draft; onClose: () => void }) {
                 </label>
               </Button>
             </div>
-            {analyzing && <p className="flex items-center gap-1 text-xs text-muted-foreground"><Wand2 className="h-3 w-3 animate-pulse" /> Reading your photo…</p>}
           </div>
-          <div className="space-y-1.5"><Label htmlFor="name">Name</Label><Input id="name" value={d.name} maxLength={80} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Navy oxford shirt" /></div>
-          <div className="grid grid-cols-2 gap-3">
-            {sel("category", "Category", CATEGORIES)}
-            {sel("main_color", "Main colour", asOpts(COLORS))}
-            {sel("pattern", "Pattern", asOpts(PATTERNS))}
-            {sel("style", "Style", asOpts(STYLES))}
+
+          {analyzing && (
+            <div className="space-y-2" role="status">
+              <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><Sparkles className="h-3 w-3 animate-pulse text-bronze" /> Analysing your piece…</p>
+              <div className="h-6 w-2/3 animate-pulse rounded-full bg-muted" />
+              <div className="h-16 animate-pulse rounded-xl bg-muted" />
+            </div>
+          )}
+
+          {detected && !analyzing && (
+            <div className="fade-up space-y-2">
+              <p className="flex items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground"><Sparkles className="h-3 w-3 text-bronze" /> AI detected</p>
+              <div className="flex flex-wrap gap-1.5">
+                {colors.map((c) => (
+                  <span key={c.name + c.hex} className="flex items-center gap-1.5 rounded-full border bg-card px-2.5 py-1 text-xs">
+                    <span className="h-3 w-3 rounded-full border" style={{ backgroundColor: c.hex }} />{c.name}
+                  </span>
+                ))}
+                <span className="rounded-full border bg-secondary px-2.5 py-1 text-xs capitalize">{d.style}</span>
+                <span className="rounded-full border bg-secondary px-2.5 py-1 text-xs capitalize">{d.pattern}</span>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-1.5"><Label htmlFor="name">Name <span className="text-muted-foreground">(optional)</span></Label><Input id="name" value={d.name} maxLength={80} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Navy oxford shirt" /></div>
+          <div className="space-y-1.5">
+            <Label>Category</Label>
+            <Select value={d.category} onValueChange={(v) => set("category", v)}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>{CATEGORIES.map((o) => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}</SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label>Seasons</Label>
             <div className="flex flex-wrap gap-2">
               {SEASONS.map((s) => (
                 <button type="button" key={s} onClick={() => set("seasons", d.seasons.includes(s) ? d.seasons.filter((x) => x !== s) : [...d.seasons, s])}
-                  className={cn("rounded-full border px-3 py-1 text-xs capitalize", d.seasons.includes(s) ? "border-primary bg-primary text-primary-foreground" : "bg-card")}>{s}</button>
+                  className={cn("rounded-full border px-3 py-1 text-xs capitalize transition-colors", d.seasons.includes(s) ? "border-primary bg-primary text-primary-foreground" : "bg-card")}>{s}</button>
               ))}
             </div>
           </div>
+
+          {detected && !analyzing && ideas.length > 0 && (
+            <div className="fade-up space-y-2">
+              <Label>Outfit ideas</Label>
+              <div className="space-y-2">
+                {ideas.map((o) => (
+                  <div key={o.title} className="rounded-xl border bg-card p-3">
+                    <p className="text-sm font-medium">{o.title}</p>
+                    <p className="mt-1 text-xs">{o.pieces.join(" · ")}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{o.colour_reasoning}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <Button type="submit" variant="hero" className="w-full" disabled={saving || analyzing}>{saving ? "Saving…" : "Save"}</Button>
         </form>
       </DialogContent>

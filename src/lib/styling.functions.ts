@@ -160,9 +160,13 @@ const garmentSchema = z.object({
   name: z.string(),
   category: z.enum(CATEGORIES.map((c) => c.value) as [string, ...string[]]),
   main_color: z.enum(COLORS),
+  dominant_colors: z.array(z.object({ name: z.string(), hex: z.string() })),
   pattern: z.enum(PATTERNS),
   style: z.enum(STYLES),
   seasons: z.array(z.enum(SEASONS)),
+  outfit_suggestions: z.array(
+    z.object({ title: z.string(), pieces: z.array(z.string()), colour_reasoning: z.string() }),
+  ),
 });
 export type GarmentSuggestion = z.infer<typeof garmentSchema>;
 
@@ -175,13 +179,24 @@ export const analyzeGarment = createServerFn({ method: "POST" })
     if (!isAiConfigured()) return { status: "unconfigured" as const };
     if (!(await checkAiQuota(context.supabase, context.userId, "vision")))
       return { status: "error" as const, message: "Hourly AI limit reached. Fill in the details manually." };
+    const { data: owned } = await context.supabase
+      .from("wardrobe_items")
+      .select("name,category,main_color")
+      .limit(60);
+    const wardrobe = (owned ?? []).map((i) => `- ${i.name} (${i.category}, ${i.main_color ?? "?"})`).join("\n") || "(empty)";
     try {
       const s = await generateStructured({
         schema: garmentSchema,
         instructions:
-          "You label a single clothing item from a photo for a wardrobe app. Give a short descriptive name (max 5 words). If the photo is not a clothing item, set isGarment false and fill other fields with best guesses.",
+          "You label a single clothing item from a photo for a wardrobe app. Give a short descriptive name (max 5 words). main_color is the closest allowed colour; dominant_colors lists 1-3 visible colours with a friendly name and hex. Suggest 2-3 outfit ideas built around this piece: prefer pieces from the user's existing wardrobe (use their exact names), and fill gaps with generic pieces. Each idea gets a short title, 2-4 pieces, and a one-line colour_reasoning. If the photo is not clothing, set isGarment false and give best guesses.",
         messages: [
-          { role: "user", content: [{ type: "image", image: data.imageDataUrl }, { type: "text", text: "Label this item." }] },
+          {
+            role: "user",
+            content: [
+              { type: "image", image: data.imageDataUrl },
+              { type: "text", text: `My existing wardrobe:\n${wardrobe}\n\nAnalyse this item.` },
+            ],
+          },
         ],
       });
       return { status: "ok" as const, suggestion: s };

@@ -1,0 +1,1 @@
+ALTER TABLE public.wardrobe_items ADD COLUMN IF NOT EXISTS ai_colors jsonb NOT NULL DEFAULT '[]'::jsonb, ADD COLUMN IF NOT EXISTS ai_outfit_suggestions jsonb NOT NULL DEFAULT '[]'::jsonb;

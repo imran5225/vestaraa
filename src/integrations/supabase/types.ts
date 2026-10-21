@@ -307,6 +307,8 @@ export type Database = {
       }
       wardrobe_items: {
         Row: {
+          ai_colors: Json
+          ai_outfit_suggestions: Json
           brand: string | null
           category: string
           created_at: string
@@ -326,6 +328,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_colors?: Json
+          ai_outfit_suggestions?: Json
           brand?: string | null
           category: string
           created_at?: string
@@ -345,6 +349,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_colors?: Json
+          ai_outfit_suggestions?: Json
           brand?: string | null
           category?: string
           created_at?: string
