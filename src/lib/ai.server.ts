@@ -1,10 +1,11 @@
-// Server-only Lovable AI Gateway helpers. Never import from client code.
-import { createOpenAI } from "@ai-sdk/openai";
+// Server-only Lovable AI Gateway helpers (Google Gemini). Never import from client code.
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { NoObjectGeneratedError, Output, streamText, type ModelMessage } from "ai";
 import type { z } from "zod";
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1";
-const MODEL = "openai/gpt-6-astra";
+/** Central model config — change here to switch the stylist's model. */
+export const AI_MODEL = "google/gemini-3.8-flash";
 
 export class AiUnavailableError extends Error {}
 
@@ -12,7 +13,7 @@ export function isAiConfigured() {
   return Boolean(process.env["LOVABLE_API_KEY"]);
 }
 
-/** Streams a structured-output call and returns the parsed object. */
+/** Streams a structured-output call and returns the schema-validated object. */
 export async function generateStructured<T>(opts: {
   schema: z.ZodType<T>;
   instructions: string;
@@ -20,23 +21,27 @@ export async function generateStructured<T>(opts: {
 }): Promise<T> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new AiUnavailableError("AI is not configured");
-  const provider = createOpenAI({
+  const provider = createOpenAICompatible({
+    name: "lovable",
     baseURL: GATEWAY_URL,
     apiKey,
     headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
+    supportsStructuredOutputs: true,
   });
   const result = streamText({
-    model: provider.responses(MODEL),
+    model: provider.chatModel(AI_MODEL),
     system: opts.instructions,
     messages: opts.messages,
     output: Output.object({ schema: opts.schema }),
-    providerOptions: {
-      openai: { store: false, forceReasoning: true, reasoningEffort: "low", include: ["reasoning.encrypted_content"] },
-    },
+    maxOutputTokens: 4000,
+    maxRetries: 1,
   });
   try {
-    return (await result.output) as T;
+    const out = (await result.output) as T;
+    if (out == null) throw new AiUnavailableError("AI returned an empty response");
+    return out;
   } catch (error) {
+    if (error instanceof AiUnavailableError) throw error;
     if (NoObjectGeneratedError.isInstance(error)) throw new AiUnavailableError("AI returned an invalid response");
     const status = (error as { statusCode?: number }).statusCode;
     console.error("AI gateway call failed", status ?? "");
