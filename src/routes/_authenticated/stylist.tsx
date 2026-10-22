@@ -52,7 +52,7 @@ function Page() {
     let q = supabase.from("conversations").delete();
     q = id ? q.eq("id", id) : q.not("id", "is", null);
     const { error } = await q;
-    if (error) return toast.error("Couldn't delete. Please try again.");
+    if (error) { toast.error("Couldn't delete. Please try again."); return; }
     if (!id || id === convId) setConvId(null);
     qc.invalidateQueries({ queryKey: ["conversations"] });
     toast.success(id ? "Conversation deleted" : "All conversations cleared");
