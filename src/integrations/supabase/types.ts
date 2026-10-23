@@ -305,6 +305,83 @@ export type Database = {
         }
         Relationships: []
       }
+      tryon_looks: {
+        Row: {
+          created_at: string
+          description: string
+          garment_path: string | null
+          id: string
+          occasion: string | null
+          parent_id: string | null
+          person_path: string
+          reported: boolean
+          result_path: string
+          saved: boolean
+          styling: Json
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string
+          garment_path?: string | null
+          id?: string
+          occasion?: string | null
+          parent_id?: string | null
+          person_path: string
+          reported?: boolean
+          result_path: string
+          saved?: boolean
+          styling?: Json
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string
+          garment_path?: string | null
+          id?: string
+          occasion?: string | null
+          parent_id?: string | null
+          person_path?: string
+          reported?: boolean
+          result_path?: string
+          saved?: boolean
+          styling?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tryon_looks_parent_id_fkey"
+            columns: ["parent_id"]
+            isOneToOne: false
+            referencedRelation: "tryon_looks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      virtual_models: {
+        Row: {
+          consent_at: string | null
+          onboarding_done: boolean
+          photo_path: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          consent_at?: string | null
+          onboarding_done?: boolean
+          photo_path?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          consent_at?: string | null
+          onboarding_done?: boolean
+          photo_path?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       wardrobe_items: {
         Row: {
           ai_colors: Json

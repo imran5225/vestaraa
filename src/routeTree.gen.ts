@@ -19,6 +19,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedProfileRouteImport } from './routes/_authenticated/profile'
 import { Route as AuthenticatedRecommendationsRouteImport } from './routes/_authenticated/recommendations'
 import { Route as AuthenticatedStylistRouteImport } from './routes/_authenticated/stylist'
+import { Route as AuthenticatedTryOnRouteImport } from './routes/_authenticated/try-on'
 import { Route as AuthenticatedWardrobeRouteImport } from './routes/_authenticated/wardrobe'
 
 const IndexRoute = IndexRouteImport.update({
@@ -71,6 +72,11 @@ const AuthenticatedStylistRoute = AuthenticatedStylistRouteImport.update({
   path: '/stylist',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedTryOnRoute = AuthenticatedTryOnRouteImport.update({
+  id: '/try-on',
+  path: '/try-on',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedWardrobeRoute = AuthenticatedWardrobeRouteImport.update({
   id: '/wardrobe',
   path: '/wardrobe',
@@ -87,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof AuthenticatedProfileRoute
   '/recommendations': typeof AuthenticatedRecommendationsRoute
   '/stylist': typeof AuthenticatedStylistRoute
+  '/try-on': typeof AuthenticatedTryOnRoute
   '/wardrobe': typeof AuthenticatedWardrobeRoute
 }
 export interface FileRoutesByTo {
@@ -99,6 +106,7 @@ export interface FileRoutesByTo {
   '/profile': typeof AuthenticatedProfileRoute
   '/recommendations': typeof AuthenticatedRecommendationsRoute
   '/stylist': typeof AuthenticatedStylistRoute
+  '/try-on': typeof AuthenticatedTryOnRoute
   '/wardrobe': typeof AuthenticatedWardrobeRoute
 }
 export interface FileRoutesById {
@@ -113,6 +121,7 @@ export interface FileRoutesById {
   '/_authenticated/profile': typeof AuthenticatedProfileRoute
   '/_authenticated/recommendations': typeof AuthenticatedRecommendationsRoute
   '/_authenticated/stylist': typeof AuthenticatedStylistRoute
+  '/_authenticated/try-on': typeof AuthenticatedTryOnRoute
   '/_authenticated/wardrobe': typeof AuthenticatedWardrobeRoute
 }
 export interface FileRouteTypes {
@@ -127,6 +136,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/recommendations'
     | '/stylist'
+    | '/try-on'
     | '/wardrobe'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -139,6 +149,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/recommendations'
     | '/stylist'
+    | '/try-on'
     | '/wardrobe'
   id:
     | '__root__'
@@ -152,6 +163,7 @@ export interface FileRouteTypes {
     | '/_authenticated/profile'
     | '/_authenticated/recommendations'
     | '/_authenticated/stylist'
+    | '/_authenticated/try-on'
     | '/_authenticated/wardrobe'
   fileRoutesById: FileRoutesById
 }
@@ -236,6 +248,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedStylistRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/try-on': {
+      id: '/_authenticated/try-on'
+      path: '/try-on'
+      fullPath: '/try-on'
+      preLoaderRoute: typeof AuthenticatedTryOnRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/wardrobe': {
       id: '/_authenticated/wardrobe'
       path: '/wardrobe'
@@ -251,6 +270,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProfileRoute: typeof AuthenticatedProfileRoute
   AuthenticatedRecommendationsRoute: typeof AuthenticatedRecommendationsRoute
   AuthenticatedStylistRoute: typeof AuthenticatedStylistRoute
+  AuthenticatedTryOnRoute: typeof AuthenticatedTryOnRoute
   AuthenticatedWardrobeRoute: typeof AuthenticatedWardrobeRoute
 }
 
@@ -259,6 +279,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProfileRoute: AuthenticatedProfileRoute,
   AuthenticatedRecommendationsRoute: AuthenticatedRecommendationsRoute,
   AuthenticatedStylistRoute: AuthenticatedStylistRoute,
+  AuthenticatedTryOnRoute: AuthenticatedTryOnRoute,
   AuthenticatedWardrobeRoute: AuthenticatedWardrobeRoute,
 }
 
