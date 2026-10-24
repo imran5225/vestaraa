@@ -74,7 +74,7 @@ function useSigned(paths: (string | null | undefined)[]) {
     staleTime: 50 * 60 * 1000,
     queryFn: async () => {
       const { data } = await supabase.storage.from("wardrobe").createSignedUrls(list, 3600);
-      return Object.fromEntries((data ?? []).map((d) => [d.path ?? "", d.signedUrl]));
+      return Object.fromEntries((data ?? []).map((d) => [d.path ?? "", d.signedUrl ?? ""])) as Record<string, string>;
     },
   });
 }
@@ -212,7 +212,7 @@ function Studio() {
   const photo = model.data?.photo_path ?? null;
   const active = looks.data?.find((l) => l.id === activeId) ?? null;
   const signed = useSigned([photo, ...(looks.data ?? []).flatMap((l) => [l.result_path, l.person_path])]);
-  const url = (p?: string | null) => (p ? signed.data?.[p] : undefined);
+  const url = (p?: string | null): string | undefined => (p ? signed.data?.[p] ?? undefined : undefined);
 
   const run = useMutation({
     mutationFn: async (opts: { refine?: Look }) => {
