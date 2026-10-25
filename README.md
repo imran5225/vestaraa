@@ -1,26 +1,92 @@
-# Vestaraa
+# VÉSTARA — Your Personal AI Style Agent
 
-Implement exactly the screenshot and nothing else
+A modern fashion-tech web application that turns your real-life wardrobe into personalized, occasion-aware outfit recommendations with interactive 3D avatar visualization and AI stylist chat.
 
-This project was built with [Lovable](https://lovable.dev).
+---
 
-**Live app**: https://vestaraa.lovable.app
+## Architecture & Tech Stack
 
-## Build with Lovable
+- **Frontend**: React 19, TypeScript, Tailwind CSS v4, Vite, TanStack Router & TanStack Query.
+- **3D Visualization**: Lightweight Three.js avatar mannequin studio with customizable garments and colors.
+- **Authentication & Database**: Supabase PostgreSQL with strict Row-Level Security (RLS) policies.
+- **AI Fashion Engine**: Google Gemini API (`@google/genai`) with structured output parsing for garment recognition and conversational styling, backed by a deterministic recommendation engine.
+- **Hosting & Deployment**: Vercel-ready with SPA fallback and static asset caching.
 
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/95a40ea8-6b4f-45a0-b14c-a05d9336c924).
+---
 
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+## Environment Configuration
 
-## Development
+Copy `.env.example` to `.env` and provide your project credentials:
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
-
-```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
-npm run dev
+```bash
+cp .env.example .env
 ```
+
+### Required Variables:
+
+| Variable | Description | Runtime |
+| :--- | :--- | :--- |
+| `VITE_SUPABASE_URL` | Supabase Project URL (`https://<ref>.supabase.co`) | Client & Server |
+| `VITE_SUPABASE_ANON_KEY` | Supabase Anonymous Publishable Key | Client & Server |
+| `SUPABASE_URL` | Supabase Project URL for server operations | Server |
+| `SUPABASE_PUBLISHABLE_KEY`| Supabase Publishable Key for server operations | Server |
+| `GEMINI_API_KEY` | Google Gemini API Key for AI features | Server-only (Secret) |
+
+*(Note: `GEMINI_MODEL` defaults to `gemini-3.8-flash` if not explicitly set).*
+
+---
+
+## Database Setup (Supabase)
+
+1. Create a Supabase project at [supabase.com](https://supabase.com).
+2. Navigate to **SQL Editor** in your Supabase dashboard.
+3. Run the complete schema script located at:
+   ```
+   supabase/migrations/20261025_vestara_schema_rls.sql
+   ```
+   This script creates all tables (`profiles`, `wardrobe_items`, `outfits`, `outfit_items`, `feedback`, `conversations`, `messages`, `tryon_looks`, `virtual_models`), Row-Level Security policies, and the private `wardrobe` storage bucket.
+
+---
+
+## Local Development
+
+1. **Install dependencies**:
+   ```bash
+   npm install
+   ```
+
+2. **Start the local dev server**:
+   ```bash
+   npm run dev
+   ```
+   Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+3. **Run automated test suite**:
+   ```bash
+   npm test
+   ```
+
+4. **Verify linting**:
+   ```bash
+   npm run lint
+   ```
+
+5. **Build for production**:
+   ```bash
+   npm run build
+   ```
+
+---
+
+## Deploying to Vercel
+
+1. Push your repository to GitHub or GitLab.
+2. Import the repository into [Vercel](https://vercel.com).
+3. The included `vercel.json` automatically detects the build command (`npm run build`) and output directory (`dist`).
+4. In the Vercel project settings under **Environment Variables**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+   - `SUPABASE_URL`
+   - `SUPABASE_PUBLISHABLE_KEY`
+   - `GEMINI_API_KEY`
+5. Click **Deploy**. Vercel will build and serve your production application with automatic SPA routing.

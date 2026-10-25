@@ -1,53 +1,119 @@
-// Server-only Lovable AI Gateway helpers (Google Gemini). Never import from client code.
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
-import { NoObjectGeneratedError, Output, streamText, type ModelMessage } from "ai";
+// Server-only Google Gemini API integration. Never import from client code.
+import { GoogleGenAI, type Content, type Part } from "@google/genai";
 import type { z } from "zod";
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1";
-/** Central model config — change here to switch the stylist's model. */
-export const AI_MODEL = "google/gemini-3.8-flash";
+/** Central model config — defaults to gemini-3.8-flash, configurable via GEMINI_MODEL */
+export const AI_MODEL = process.env["GEMINI_MODEL"] || "gemini-3.8-flash";
 
 export class AiUnavailableError extends Error {}
 
-export function isAiConfigured() {
-  return Boolean(process.env["LOVABLE_API_KEY"]);
+export function isAiConfigured(): boolean {
+  return Boolean(process.env["GEMINI_API_KEY"]);
 }
 
-/** Streams a structured-output call and returns the schema-validated object. */
+export type MessagePart =
+  { type: "text"; text: string } | { type: "image"; image: string; mediaType?: string };
+
+export type ModelMessage = {
+  role: "user" | "assistant" | "system";
+  content: string | MessagePart[];
+};
+
+/**
+ * Executes a structured JSON Gemini call and returns the Zod-validated result.
+ */
 export async function generateStructured<T>(opts: {
   schema: z.ZodType<T>;
   instructions: string;
   messages: ModelMessage[];
 }): Promise<T> {
-  const apiKey = process.env["LOVABLE_API_KEY"];
-  if (!apiKey) throw new AiUnavailableError("AI is not configured");
-  const provider = createOpenAICompatible({
-    name: "lovable",
-    baseURL: GATEWAY_URL,
-    apiKey,
-    headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
-    supportsStructuredOutputs: true,
-  });
-  const result = streamText({
-    model: provider.chatModel(AI_MODEL),
-    system: opts.instructions,
-    messages: opts.messages,
-    output: Output.object({ schema: opts.schema }),
-    maxOutputTokens: 4000,
-    maxRetries: 1,
-  });
-  try {
-    const out = (await result.output) as T;
-    if (out == null) throw new AiUnavailableError("AI returned an empty response");
-    return out;
-  } catch (error) {
-    if (error instanceof AiUnavailableError) throw error;
-    if (NoObjectGeneratedError.isInstance(error))
-      throw new AiUnavailableError("AI returned an invalid response");
-    const status = (error as { statusCode?: number }).statusCode;
-    console.error("AI gateway call failed", status ?? "");
-    if (status === 402) throw new AiUnavailableError("AI credits are exhausted");
-    if (status === 429) throw new AiUnavailableError("AI is busy, please try again shortly");
-    throw new AiUnavailableError("AI request failed");
+  const apiKey = process.env["GEMINI_API_KEY"];
+  if (!apiKey) {
+    throw new AiUnavailableError("AI is not configured. Please set GEMINI_API_KEY.");
   }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Convert input messages into Google GenAI Content format
+  const contents: Content[] = [];
+
+  for (const m of opts.messages) {
+    const role = m.role === "assistant" ? "model" : "user";
+    const parts: Part[] = [];
+
+    if (typeof m.content === "string") {
+      parts.push({ text: m.content });
+    } else if (Array.isArray(m.content)) {
+      for (const item of m.content) {
+        if (item.type === "text") {
+          parts.push({ text: item.text });
+        } else if (item.type === "image") {
+          let mimeType = item.mediaType || "image/jpeg";
+          let base64 = item.image;
+
+          // If data URI like data:image/png;base64,... extract payload
+          if (base64.startsWith("data:")) {
+            const match = base64.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              mimeType = match[1];
+              base64 = match[2];
+            }
+          }
+
+          parts.push({
+            inlineData: {
+              mimeType,
+              data: base64,
+            },
+          });
+        }
+      }
+    }
+
+    if (parts.length > 0) {
+      contents.push({ role, parts });
+    }
+  }
+
+  // Model cascade: try configured model first, fall back if experiencing spikes
+  const modelsToTry = [AI_MODEL, "gemini-3.5-flash", "gemini-flash-latest"];
+  const uniqueModels = [...new Set(modelsToTry)];
+
+  let lastError: unknown = null;
+
+  for (const model of uniqueModels) {
+    try {
+      const response = await ai.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction: opts.instructions,
+          responseMimeType: "application/json",
+          temperature: 0.3,
+        },
+      });
+
+      const text = response.text;
+      if (!text) {
+        throw new AiUnavailableError("Gemini returned an empty response");
+      }
+
+      const cleaned = text
+        .replace(/^```json\s*/i, "")
+        .replace(/```\s*$/i, "")
+        .trim();
+      const parsed = JSON.parse(cleaned);
+      return opts.schema.parse(parsed);
+    } catch (err: unknown) {
+      lastError = err;
+      if (err instanceof Error && err.name === "ZodError") {
+        throw new AiUnavailableError("AI returned an invalid schema response");
+      }
+    }
+  }
+
+  console.error("[Gemini] API error:", lastError);
+  throw new AiUnavailableError(
+    "AI service temporarily unavailable. Falling back to deterministic rules engine.",
+  );
 }

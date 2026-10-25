@@ -19,6 +19,9 @@ export const profileQuery = queryOptions({
       return {
         id: DEMO_USER_ID,
         display_name: "Style Explorer",
+        email: "demo@vestara.style",
+        avatar_url: null,
+        photo_path: null,
         preferred_styles: ["casual", "smart-casual"],
         preferred_fits: ["regular", "tailored"],
         favorite_colors: ["navy", "white", "camel"],
@@ -30,16 +33,42 @@ export const profileQuery = queryOptions({
         created_at: new Date().toISOString(),
       };
     }
+
+    const user = userRes.user;
     const { data, error } = await supabase
       .from("profiles")
       .select("*")
-      .eq("id", userRes.user.id)
+      .eq("id", user.id)
       .maybeSingle();
-    if (error) throw error;
-    return (
-      data ?? {
-        id: userRes.user.id,
-        display_name: userRes.user.email?.split("@")[0] ?? "Member",
+    if (error && !error.message.includes("Could not find the table")) {
+      console.warn("Profile fetch warning:", error.message);
+    }
+
+    const { data: modelData } = await supabase
+      .from("virtual_models")
+      .select("photo_path")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    let avatarUrl: string | null = (user.user_metadata?.avatar_url as string) ?? null;
+    if (modelData?.photo_path) {
+      try {
+        const { data: signed } = await supabase.storage
+          .from("wardrobe")
+          .createSignedUrl(modelData.photo_path, 3600);
+        if (signed?.signedUrl) {
+          avatarUrl = signed.signedUrl;
+        }
+      } catch (err) {
+        console.warn("Avatar signing warning:", err);
+      }
+    }
+
+    return {
+      ...(data ?? {
+        id: user.id,
+        display_name:
+          (user.user_metadata?.full_name as string) ?? user.email?.split("@")[0] ?? "Member",
         preferred_styles: ["casual", "smart-casual"],
         preferred_fits: ["regular"],
         favorite_colors: ["navy", "white"],
@@ -48,15 +77,28 @@ export const profileQuery = queryOptions({
         weather_enabled: false,
         weather_city: null,
         comfort_notes: "",
-        created_at: new Date().toISOString(),
-      }
-    );
+        created_at: user.created_at ?? new Date().toISOString(),
+      }),
+      email: user.email,
+      avatar_url: avatarUrl,
+      photo_path: modelData?.photo_path ?? null,
+    };
   },
 });
 
 export const wardrobeQuery = queryOptions({
   queryKey: ["wardrobe"],
   queryFn: async () => {
+    const { data: userRes } = await supabase.auth.getUser();
+    if (userRes?.user) {
+      const { data, error } = await supabase
+        .from("wardrobe_items")
+        .select("*")
+        .eq("user_id", userRes.user.id)
+        .order("created_at", { ascending: false });
+      if (!error && data) return data as WardrobeItem[];
+    }
+
     const { data, error } = await supabase
       .from("wardrobe_items")
       .select("*")
@@ -139,7 +181,10 @@ export const outfitsQuery = (filter: "all" | "saved" = "all", limit = 24) =>
         .limit(limit);
       if (filter === "saved") q = q.eq("status", "saved");
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes("Could not find the table")) return [];
+        throw error;
+      }
       return ((data ?? []) as unknown as RawOutfit[]).map(toView);
     },
   });
@@ -154,7 +199,10 @@ export const outfitQuery = (id: string | null) =>
         .select(OUTFIT_SELECT)
         .eq("id", id!)
         .maybeSingle();
-      if (error) throw error;
+      if (error) {
+        if (error.message.includes("Could not find the table")) return null;
+        throw error;
+      }
       return data ? toView(data as unknown as RawOutfit) : null;
     },
   });
@@ -164,10 +212,13 @@ export const feedbackQuery = queryOptions({
   queryFn: async () => {
     const { data, error } = await supabase
       .from("feedback")
-      .select("id,action,slot,created_at,outfit_id")
+      .select("id,action,slot,colors,item_ids,created_at,outfit_id")
       .order("created_at", { ascending: false })
-      .limit(8);
-    if (error) throw error;
+      .limit(50);
+    if (error) {
+      if (error.message.includes("Could not find the table")) return [];
+      throw error;
+    }
     return data ?? [];
   },
 });
@@ -180,7 +231,10 @@ export const conversationsQuery = queryOptions({
       .select("id,title,updated_at")
       .order("updated_at", { ascending: false })
       .limit(20);
-    if (error) throw error;
+    if (error) {
+      if (error.message.includes("Could not find the table")) return [];
+      throw error;
+    }
     return data ?? [];
   },
 });

@@ -93,7 +93,8 @@
   --border: oklch(0.89 0.014 78);
   --input: oklch(0.88 0.014 78);
   --ring: oklch(0.56 0.08 62);
-  --shadow-soft-value: 0 1px 2px oklch(0.3 0.02 60 / 0.04), 0 8px 24px -12px oklch(0.3 0.02 60 / 0.12);
+  --shadow-soft-value:
+    0 1px 2px oklch(0.3 0.02 60 / 0.04), 0 8px 24px -12px oklch(0.3 0.02 60 / 0.12);
   --shadow-lift-value: 0 20px 50px -24px oklch(0.3 0.03 60 / 0.3);
   --chart-1: oklch(0.56 0.08 62);
   --chart-2: oklch(0.68 0.025 65);
@@ -122,7 +123,9 @@
     color: var(--color-foreground);
     font-family: var(--font-sans);
   }
-  h1, h2, h3 {
+  h1,
+  h2,
+  h3 {
     font-family: var(--font-display);
     font-weight: 400;
     letter-spacing: -0.01em;
@@ -132,7 +135,9 @@
     outline-offset: 2px;
   }
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
+    *,
+    *::before,
+    *::after {
       animation-duration: 0.01ms !important;
       transition-duration: 0.01ms !important;
     }
@@ -162,6 +167,12 @@
 }
 
 @keyframes fade-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }

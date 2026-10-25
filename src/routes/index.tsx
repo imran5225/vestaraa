@@ -1,8 +1,10 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ArrowRight, Camera, CloudSun, MessageCircle, Sparkles } from "lucide-react";
 import { SiteFooter, SiteHeader } from "@/components/layout/SiteChrome";
 import { Button } from "@/components/ui/button";
 import { SAMPLE_IMAGES } from "@/lib/sample-images";
+import { supabase } from "@/integrations/supabase/client";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -49,7 +51,17 @@ const FEATURES = [
 ];
 
 function Landing() {
+  const navigate = useNavigate();
   const imgs = Object.values(SAMPLE_IMAGES).slice(0, 4);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data.user) {
+        navigate({ to: "/dashboard", replace: true });
+      }
+    });
+  }, [navigate]);
+
   return (
     <div className="min-h-screen">
       <SiteHeader />
