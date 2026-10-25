@@ -23,7 +23,8 @@ export type TryOnStyling = z.infer<typeof stylingSchema>;
 
 function toBase64(bytes: Uint8Array) {
   let s = "";
-  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   return btoa(s);
 }
 
@@ -33,7 +34,13 @@ async function download(supabase: Db, path: string) {
   return data;
 }
 
-function buildPrompt(d: { description: string; occasion: string | null; extras: string | null; hasGarment: boolean; refine: boolean }) {
+function buildPrompt(d: {
+  description: string;
+  occasion: string | null;
+  extras: string | null;
+  hasGarment: boolean;
+  refine: boolean;
+}) {
   return [
     d.refine
       ? "Image 1 is a person already wearing an outfit. Apply only this change to the outfit:"
@@ -44,19 +51,75 @@ function buildPrompt(d: { description: string; occasion: string | null; extras: 
     d.occasion ? `Occasion: ${d.occasion}.` : "",
     d.extras ? `Styling details: ${d.extras}.` : "",
     "Keep the person's face, identity, skin tone, hair, body shape, pose and the background exactly as they are. Preserve the garment's colour, pattern, neckline, sleeves and silhouette. Photorealistic, natural fit and lighting. Do not add text or watermarks.",
-  ].filter(Boolean).join(" ");
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 export async function runTryOn(
   supabase: Db,
   userId: string,
-  d: { personPath: string; garmentPath: string | null; description: string; occasion: string | null; extras: string | null; parentId: string | null },
+  d: {
+    personPath: string;
+    garmentPath: string | null;
+    description: string;
+    occasion: string | null;
+    extras: string | null;
+    parentId: string | null;
+  },
 ) {
   const apiKey = process.env["LOVABLE_API_KEY"];
-  if (!apiKey) throw new TryOnError("AI try-on isn't configured.");
-  for (const p of [d.personPath, d.garmentPath]) if (p && !p.startsWith(`${userId}/`)) throw new TryOnError("Invalid photo.");
-  if (!d.garmentPath && !d.description) throw new TryOnError("Add a clothing photo or describe the outfit.");
-  if (!(await checkAiQuota(supabase, userId, "tryon", 15))) throw new TryOnError("You've hit the hourly try-on limit. Please try again later.");
+  for (const p of [d.personPath, d.garmentPath])
+    if (p && !p.startsWith(`${userId}/`)) throw new TryOnError("Invalid photo.");
+  if (!d.garmentPath && !d.description)
+    throw new TryOnError("Add a clothing photo or describe the outfit.");
+
+  // If live AI gateway is unconfigured, provide a safe, clearly-labeled demo simulation
+  if (!apiKey) {
+    const personBlob = await download(supabase, d.personPath);
+    const personBytes = new Uint8Array(await personBlob.arrayBuffer());
+    const resultPath = `${userId}/tryon/results/${crypto.randomUUID()}.jpg`;
+    await supabase.storage
+      .from("wardrobe")
+      .upload(resultPath, personBytes, { contentType: "image/jpeg" });
+
+    const demoStyling = {
+      outfit_name: d.description
+        ? `${d.description.slice(0, 32)} (Demo Preview)`
+        : "Curated Look (Demo Preview)",
+      styling_reason:
+        "Realistic photo-based clothing transfer requires a dedicated generative AI diffusion model or API. This is a clearly-labeled demo preview illustrating how your look and styling notes are organized in VÉSTARA.",
+      footwear: ["Minimalist leather sneakers", "Classic penny loafers"],
+      accessories: ["Refined wrist watch", "Neutral woven tote"],
+      alternatives: ["Pair with straight-leg denim", "Layer with a structured blazer"],
+      styling_tips: [
+        "Keep cuffs unbuttoned once for an effortless silhouette",
+        "Match leather tones between your belt and shoes",
+      ],
+      isDemo: true,
+    };
+
+    const { data: row, error } = await supabase
+      .from("tryon_looks")
+      .insert({
+        user_id: userId,
+        person_path: d.personPath,
+        garment_path: d.garmentPath,
+        result_path: resultPath,
+        description: d.description,
+        occasion: d.occasion,
+        styling: demoStyling as never,
+        parent_id: d.parentId,
+      })
+      .select("id")
+      .single();
+
+    if (error || !row) throw new TryOnError("Couldn't save the demo preview.");
+    return { id: row.id };
+  }
+
+  if (!(await checkAiQuota(supabase, userId, "tryon", 15)))
+    throw new TryOnError("You've hit the hourly try-on limit. Please try again later.");
 
   const person = await download(supabase, d.personPath);
   const garment = d.garmentPath ? await download(supabase, d.garmentPath) : null;
@@ -68,15 +131,24 @@ export async function runTryOn(
   form.set("quality", "medium");
   form.set("output_format", "jpeg");
   form.append("image[]", new File([person], "person.jpg", { type: person.type || "image/jpeg" }));
-  if (garment) form.append("image[]", new File([garment], "garment.jpg", { type: garment.type || "image/jpeg" }));
+  if (garment)
+    form.append(
+      "image[]",
+      new File([garment], "garment.jpg", { type: garment.type || "image/jpeg" }),
+    );
 
   const imageCall = (async () => {
-    const res = await fetch(`${GATEWAY}/images/edits`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}` }, body: form });
+    const res = await fetch(`${GATEWAY}/images/edits`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: form,
+    });
     if (!res.ok) {
       console.error("try-on image failed", res.status);
       if (res.status === 402) throw new TryOnError("AI credits are exhausted.");
       if (res.status === 429) throw new TryOnError("AI is busy — please try again in a minute.");
-      if (res.status === 400) throw new TryOnError("The AI couldn't use this photo. Try a clearer full-body photo.");
+      if (res.status === 400)
+        throw new TryOnError("The AI couldn't use this photo. Try a clearer full-body photo.");
       throw new TryOnError("The try-on couldn't be generated. Please try again.");
     }
     const json = (await res.json()) as { data?: { b64_json?: string }[] };
@@ -87,10 +159,20 @@ export async function runTryOn(
 
   const stylingCall = (async (): Promise<TryOnStyling | null> => {
     try {
-      const content: ({ type: "text"; text: string } | { type: "image"; image: string; mediaType: string })[] = [
-        { type: "text", text: `Outfit: ${d.description || "the clothing item in the photo"}. Occasion: ${d.occasion ?? "unspecified"}. Extras: ${d.extras ?? "none"}.` },
+      const content: (
+        { type: "text"; text: string } | { type: "image"; image: string; mediaType: string }
+      )[] = [
+        {
+          type: "text",
+          text: `Outfit: ${d.description || "the clothing item in the photo"}. Occasion: ${d.occasion ?? "unspecified"}. Extras: ${d.extras ?? "none"}.`,
+        },
       ];
-      if (garment) content.push({ type: "image", image: toBase64(new Uint8Array(await garment.arrayBuffer())), mediaType: garment.type || "image/jpeg" });
+      if (garment)
+        content.push({
+          type: "image",
+          image: toBase64(new Uint8Array(await garment.arrayBuffer())),
+          mediaType: garment.type || "image/jpeg",
+        });
       return await generateStructured({
         schema: stylingSchema,
         instructions:
@@ -105,7 +187,9 @@ export async function runTryOn(
 
   const [bytes, styling] = await Promise.all([imageCall, stylingCall]);
   const resultPath = `${userId}/tryon/results/${crypto.randomUUID()}.jpg`;
-  const up = await supabase.storage.from("wardrobe").upload(resultPath, bytes, { contentType: "image/jpeg" });
+  const up = await supabase.storage
+    .from("wardrobe")
+    .upload(resultPath, bytes, { contentType: "image/jpeg" });
   if (up.error) throw new TryOnError("Couldn't save the generated look.");
 
   const { data: row, error } = await supabase

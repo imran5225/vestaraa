@@ -51,7 +51,12 @@ export async function loadStylingContext(supabase: Db, userId: string) {
 
 export function buildEngineContext(
   loaded: Awaited<ReturnType<typeof loadStylingContext>>,
-  opts: { occasion: string; mood?: string | null | undefined; weather?: WeatherContext | null | undefined; excludeItemIds?: string[] | undefined },
+  opts: {
+    occasion: string;
+    mood?: string | null | undefined;
+    weather?: WeatherContext | null | undefined;
+    excludeItemIds?: string[] | undefined;
+  },
 ): EngineContext {
   return {
     occasion: opts.occasion,
@@ -109,9 +114,16 @@ export async function persistOutfit(
 }
 
 export async function loadOutfitSlots(supabase: Db, outfitId: string) {
-  const { data: outfit } = await supabase.from("outfits").select("*").eq("id", outfitId).maybeSingle();
+  const { data: outfit } = await supabase
+    .from("outfits")
+    .select("*")
+    .eq("id", outfitId)
+    .maybeSingle();
   if (!outfit) return null;
-  const { data: rows } = await supabase.from("outfit_items").select("slot,item_id").eq("outfit_id", outfitId);
+  const { data: rows } = await supabase
+    .from("outfit_items")
+    .select("slot,item_id")
+    .eq("outfit_id", outfitId);
   const slots: OutfitSlots = {};
   for (const r of rows ?? []) slots[r.slot as Slot] = r.item_id;
   return { outfit, slots };
@@ -119,7 +131,9 @@ export async function loadOutfitSlots(supabase: Db, outfitId: string) {
 
 export function describe(wardrobe: EngineItem[], outfit: ScoredOutfit, ctx: EngineContext) {
   const byId = new Map(wardrobe.map((i) => [i.id, i]));
-  const items = Object.values(outfit.slots).map((id) => byId.get(id!)!).filter(Boolean);
+  const items = Object.values(outfit.slots)
+    .map((id) => byId.get(id!)!)
+    .filter(Boolean);
   return explainOutfit(items, outfit, ctx);
 }
 
@@ -130,10 +144,27 @@ export async function colorsFor(supabase: Db, itemIds: string[]) {
 }
 
 const WEATHER_CODES: Record<number, string> = {
-  0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast", 45: "Fog", 48: "Fog",
-  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle", 61: "Light rain", 63: "Rain", 65: "Heavy rain",
-  71: "Light snow", 73: "Snow", 75: "Heavy snow", 80: "Rain showers", 81: "Rain showers", 82: "Violent showers",
-  95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm",
+  0: "Clear",
+  1: "Mostly clear",
+  2: "Partly cloudy",
+  3: "Overcast",
+  45: "Fog",
+  48: "Fog",
+  51: "Light drizzle",
+  53: "Drizzle",
+  55: "Heavy drizzle",
+  61: "Light rain",
+  63: "Rain",
+  65: "Heavy rain",
+  71: "Light snow",
+  73: "Snow",
+  75: "Heavy snow",
+  80: "Rain showers",
+  81: "Rain showers",
+  82: "Violent showers",
+  95: "Thunderstorm",
+  96: "Thunderstorm",
+  99: "Thunderstorm",
 };
 
 /** Live weather from Open-Meteo (no API key). Returns null when unavailable. */

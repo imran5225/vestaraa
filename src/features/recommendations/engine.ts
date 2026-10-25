@@ -61,12 +61,33 @@ export type EngineResult =
   | { ok: true; outfit: ScoredOutfit; alternatives: number }
   | { ok: false; missing: Slot[]; reason: string };
 
-const NEUTRALS = new Set(["white", "black", "grey", "navy", "beige", "cream", "camel", "brown", "denim"]);
+const NEUTRALS = new Set([
+  "white",
+  "black",
+  "grey",
+  "navy",
+  "beige",
+  "cream",
+  "camel",
+  "brown",
+  "denim",
+]);
 
 // Pairs that read as harmonious beyond neutrals (unordered).
 const HARMONIOUS = new Set([
-  "blue|brown", "light blue|navy", "light blue|beige", "olive|cream", "olive|white", "burgundy|grey",
-  "burgundy|navy", "pink|grey", "pink|navy", "green|beige", "blue|beige", "blue|white", "red|navy",
+  "blue|brown",
+  "light blue|navy",
+  "light blue|beige",
+  "olive|cream",
+  "olive|white",
+  "burgundy|grey",
+  "burgundy|navy",
+  "pink|grey",
+  "pink|navy",
+  "green|beige",
+  "blue|beige",
+  "blue|white",
+  "red|navy",
 ]);
 
 // Which styles suit each occasion, best first.
@@ -126,7 +147,9 @@ export function colorHarmony(items: EngineItem[]): number {
     }
   }
   // More than one bold pattern competes for attention.
-  const patterned = items.filter((i) => i.pattern && i.pattern !== "solid" && i.pattern !== "textured").length;
+  const patterned = items.filter(
+    (i) => i.pattern && i.pattern !== "solid" && i.pattern !== "textured",
+  ).length;
   const patternPenalty = patterned > 1 ? 0.2 * (patterned - 1) : 0;
   return clamp01(total / pairs - patternPenalty);
 }
@@ -142,7 +165,9 @@ export function occasionFit(item: EngineItem, occasion: string, mood?: string | 
 }
 
 export function styleConsistency(items: EngineItem[]): number {
-  const ranks = items.map((i) => (i.style ? STYLE_ORDER.indexOf(i.style) : -1)).filter((r) => r >= 0);
+  const ranks = items
+    .map((i) => (i.style ? STYLE_ORDER.indexOf(i.style) : -1))
+    .filter((r) => r >= 0);
   if (ranks.length < 2) return 0.6;
   const spread = Math.max(...ranks) - Math.min(...ranks);
   return clamp01(1 - spread * 0.15);
@@ -212,7 +237,13 @@ export function scoreOutfit(items: EngineItem[], ctx: EngineContext): ScoredOutf
 }
 
 function groupBySlot(items: EngineItem[], exclude: Set<string>) {
-  const groups: Record<Slot, EngineItem[]> = { top: [], bottom: [], shoes: [], outerwear: [], accessory: [] };
+  const groups: Record<Slot, EngineItem[]> = {
+    top: [],
+    bottom: [],
+    shoes: [],
+    outerwear: [],
+    accessory: [],
+  };
   for (const item of items) {
     if (exclude.has(item.id)) continue;
     groups[slotOf(item)].push(item);
@@ -228,7 +259,12 @@ function shortlist(items: EngineItem[], ctx: EngineContext, limit = 12) {
 }
 
 /** Try adding each optional piece; keep it only when it raises the score. */
-function withOptionalPieces(base: EngineItem[], groups: Record<Slot, EngineItem[]>, ctx: EngineContext, locked: Partial<Record<Slot, EngineItem>>) {
+function withOptionalPieces(
+  base: EngineItem[],
+  groups: Record<Slot, EngineItem[]>,
+  ctx: EngineContext,
+  locked: Partial<Record<Slot, EngineItem>>,
+) {
   let best = base;
   let bestScore = scoreOutfit(base, ctx).score;
   for (const slot of ["outerwear", "accessory"] as const) {
@@ -274,9 +310,14 @@ export function recommendOutfit(
   const groups = groupBySlot(wardrobe, exclude);
   const missing = REQUIRED_SLOTS.filter((s) => !lockedItems[s] && groups[s].length === 0);
   if (missing.length) {
-    return { ok: false, missing, reason: `Add at least one ${missing.join(", ")} item to build a complete outfit.` };
+    return {
+      ok: false,
+      missing,
+      reason: `Add at least one ${missing.join(", ")} item to build a complete outfit.`,
+    };
   }
-  const pool = (slot: Slot) => (lockedItems[slot] ? [lockedItems[slot]!] : shortlist(groups[slot], ctx));
+  const pool = (slot: Slot) =>
+    lockedItems[slot] ? [lockedItems[slot]!] : shortlist(groups[slot], ctx);
   const ranked: ScoredOutfit[] = [];
   for (const top of pool("top"))
     for (const bottom of pool("bottom"))
@@ -307,7 +348,11 @@ export function swapSlot(
   const exclude = new Set([...(ctx.excludeItemIds ?? []), ...(currentId ? [currentId] : [])]);
   const candidates = wardrobe.filter((i) => slotOf(i) === slot && !exclude.has(i.id));
   if (!candidates.length) {
-    return { ok: false, missing: [slot], reason: `There is no other ${slot} in your wardrobe to swap in.` };
+    return {
+      ok: false,
+      missing: [slot],
+      reason: `There is no other ${slot} in your wardrobe to swap in.`,
+    };
   }
   const options = candidates
     .map((c) => scoreOutfit([...kept, c], ctx))
@@ -316,7 +361,11 @@ export function swapSlot(
   if (!result) return { ok: false, missing: [slot], reason: "No swap candidate fits." };
   const invalid = REQUIRED_SLOTS.filter((s) => !result.slots[s]);
   if (invalid.length) {
-    return { ok: false, missing: invalid, reason: "The revised outfit is missing required pieces." };
+    return {
+      ok: false,
+      missing: invalid,
+      reason: "The revised outfit is missing required pieces.",
+    };
   }
   return { ok: true, outfit: result, alternatives: options.length - 1 };
 }
@@ -344,24 +393,38 @@ export function buildFeedbackSignals(
   const delta: Record<string, number> = { love: 1, save: 0.6, worn: 0.8, dislike: -1, swap: -0.7 };
   for (const row of rows) {
     const d = delta[row.action] ?? 0;
-    for (const id of row.item_ids) itemAffinity[id] = Math.max(-3, Math.min(3, (itemAffinity[id] ?? 0) + d));
-    for (const c of row.colors) colorAffinity[c] = Math.max(-3, Math.min(3, (colorAffinity[c] ?? 0) + d * 0.5));
-    if ((row.action === "love" || row.action === "save") && row.signature) likedSignatures.push(row.signature);
+    for (const id of row.item_ids)
+      itemAffinity[id] = Math.max(-3, Math.min(3, (itemAffinity[id] ?? 0) + d));
+    for (const c of row.colors)
+      colorAffinity[c] = Math.max(-3, Math.min(3, (colorAffinity[c] ?? 0) + d * 0.5));
+    if ((row.action === "love" || row.action === "save") && row.signature)
+      likedSignatures.push(row.signature);
   }
   return { colorAffinity, itemAffinity, likedSignatures };
 }
 
 /** Short, factual explanation derived from the score breakdown. */
-export function explainOutfit(items: EngineItem[], outfit: ScoredOutfit, ctx: EngineContext): string {
+export function explainOutfit(
+  items: EngineItem[],
+  outfit: ScoredOutfit,
+  ctx: EngineContext,
+): string {
   const names = items.map((i) => i.name.toLowerCase());
-  const parts = [`For ${ctx.occasion}, pair your ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` with the ${names.slice(3).join(" and ")}` : ""}.`];
+  const parts = [
+    `For ${ctx.occasion}, pair your ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` with the ${names.slice(3).join(" and ")}` : ""}.`,
+  ];
   if (outfit.breakdown.colorHarmony >= 0.85) parts.push("The palette stays calm and balanced.");
   else if (outfit.breakdown.colorHarmony < 0.5) parts.push("It's a bolder colour mix than usual.");
-  if (outfit.breakdown.styleConsistency >= 0.8) parts.push("Every piece sits in the same style register.");
+  if (outfit.breakdown.styleConsistency >= 0.8)
+    parts.push("Every piece sits in the same style register.");
   if (ctx.weather) {
     const outer = items.some((i) => i.category === "outerwear");
     if (ctx.weather.precipitationMm > 0.5 || ctx.weather.temperatureC < 14)
-      parts.push(outer ? `A layer is included for ${Math.round(ctx.weather.temperatureC)}°C ${ctx.weather.description.toLowerCase()}.` : "Consider adding a layer for today's weather.");
+      parts.push(
+        outer
+          ? `A layer is included for ${Math.round(ctx.weather.temperatureC)}°C ${ctx.weather.description.toLowerCase()}.`
+          : "Consider adding a layer for today's weather.",
+      );
   }
   return parts.join(" ");
 }

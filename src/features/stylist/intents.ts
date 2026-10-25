@@ -29,12 +29,19 @@ const SLOT_WORDS: [RegExp, Slot][] = [
 export function parseIntent(text: string): ParsedIntent {
   const occasion = OCCASION_WORDS.find(([re]) => re.test(text))?.[1] ?? null;
   const slot = SLOT_WORDS.find(([re]) => re.test(text))?.[1] ?? null;
-  const swapLike = /\b(don'?t like|swap|change|replace|different|another|something else|instead)\b/i.test(text);
+  const swapLike =
+    /\b(don'?t like|swap|change|replace|different|another|something else|instead)\b/i.test(text);
   if (swapLike && slot) return { intent: "swap", occasion, slot };
-  if (/\b(hate|not for me|reject|no thanks|start over|new look|try again)\b/i.test(text) || (swapLike && !slot))
+  if (
+    /\b(hate|not for me|reject|no thanks|start over|new look|try again)\b/i.test(text) ||
+    (swapLike && !slot)
+  )
     return { intent: "reject", occasion, slot: null };
-  if (/\b(rain|rainy|cold|chilly|hot|weather|snow|warm)\b/i.test(text)) return { intent: "weather", occasion, slot: null };
-  if (/\b(formal|dressier|dressy|smarter|elegant|polished)\b/i.test(text)) return { intent: "formal", occasion, slot: null };
-  if (occasion || /\b(wear|outfit|look|style me|what should)\b/i.test(text)) return { intent: "recommend", occasion, slot: null };
+  if (/\b(rain|rainy|cold|chilly|hot|weather|snow|warm)\b/i.test(text))
+    return { intent: "weather", occasion, slot: null };
+  if (/\b(formal|dressier|dressy|smarter|elegant|polished)\b/i.test(text))
+    return { intent: "formal", occasion, slot: null };
+  if (occasion || /\b(wear|outfit|look|style me|what should)\b/i.test(text))
+    return { intent: "recommend", occasion, slot: null };
   return { intent: "chat", occasion: null, slot: null };
 }

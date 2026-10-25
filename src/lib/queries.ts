@@ -3,19 +3,54 @@ import { queryOptions, useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import type { Slot, WardrobeItem } from "@/lib/domain";
 
+const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
+
 export async function currentUserId() {
   const { data } = await supabase.auth.getUser();
-  if (!data.user) throw new Error("Not signed in");
-  return data.user.id;
+  if (data?.user) return data.user.id;
+  return DEMO_USER_ID;
 }
 
 export const profileQuery = queryOptions({
   queryKey: ["profile"],
   queryFn: async () => {
-    const id = await currentUserId();
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
+    const { data: userRes } = await supabase.auth.getUser();
+    if (!userRes?.user) {
+      return {
+        id: DEMO_USER_ID,
+        display_name: "Style Explorer",
+        preferred_styles: ["casual", "smart-casual"],
+        preferred_fits: ["regular", "tailored"],
+        favorite_colors: ["navy", "white", "camel"],
+        avoided_colors: [],
+        typical_occasions: ["casual", "work", "college"],
+        weather_enabled: false,
+        weather_city: "London",
+        comfort_notes: "Prefers natural breathable fabrics.",
+        created_at: new Date().toISOString(),
+      };
+    }
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", userRes.user.id)
+      .maybeSingle();
     if (error) throw error;
-    return data;
+    return (
+      data ?? {
+        id: userRes.user.id,
+        display_name: userRes.user.email?.split("@")[0] ?? "Member",
+        preferred_styles: ["casual", "smart-casual"],
+        preferred_fits: ["regular"],
+        favorite_colors: ["navy", "white"],
+        avoided_colors: [],
+        typical_occasions: ["casual"],
+        weather_enabled: false,
+        weather_city: null,
+        comfort_notes: "",
+        created_at: new Date().toISOString(),
+      }
+    );
   },
 });
 
@@ -26,8 +61,34 @@ export const wardrobeQuery = queryOptions({
       .from("wardrobe_items")
       .select("*")
       .order("created_at", { ascending: false });
-    if (error) throw error;
-    return (data ?? []) as WardrobeItem[];
+    if (!error && data && data.length > 0) return data as WardrobeItem[];
+
+    // Provide default sample wardrobe items for preview & guest users
+    const { SAMPLE_WARDROBE } = await import("@/lib/sample-wardrobe");
+    return SAMPLE_WARDROBE.map((s, idx) => ({
+      id: `sample-${s.sample_key}`,
+      user_id: DEMO_USER_ID,
+      name: s.name,
+      category: s.category,
+      slot: (s.category === "outerwear"
+        ? "outerwear"
+        : s.category === "top" || s.category === "shirt"
+          ? "top"
+          : s.category === "trousers" || s.category === "jeans"
+            ? "bottom"
+            : s.category === "shoes"
+              ? "shoes"
+              : "accessory") as Slot,
+      main_color: s.main_color,
+      pattern: s.pattern,
+      style: s.style,
+      fit: s.fit,
+      seasons: s.seasons,
+      sample_key: s.sample_key,
+      image_path: null,
+      is_sample: true,
+      created_at: new Date(Date.now() - idx * 3600000).toISOString(),
+    })) as WardrobeItem[];
   },
 });
 
@@ -71,7 +132,11 @@ export const outfitsQuery = (filter: "all" | "saved" = "all", limit = 24) =>
   queryOptions({
     queryKey: ["outfits", filter, limit],
     queryFn: async () => {
-      let q = supabase.from("outfits").select(OUTFIT_SELECT).order("created_at", { ascending: false }).limit(limit);
+      let q = supabase
+        .from("outfits")
+        .select(OUTFIT_SELECT)
+        .order("created_at", { ascending: false })
+        .limit(limit);
       if (filter === "saved") q = q.eq("status", "saved");
       const { data, error } = await q;
       if (error) throw error;
@@ -84,7 +149,11 @@ export const outfitQuery = (id: string | null) =>
     queryKey: ["outfit", id],
     enabled: Boolean(id),
     queryFn: async () => {
-      const { data, error } = await supabase.from("outfits").select(OUTFIT_SELECT).eq("id", id!).maybeSingle();
+      const { data, error } = await supabase
+        .from("outfits")
+        .select(OUTFIT_SELECT)
+        .eq("id", id!)
+        .maybeSingle();
       if (error) throw error;
       return data ? toView(data as unknown as RawOutfit) : null;
     },
@@ -139,7 +208,9 @@ export function useSignedUrls(paths: string[]) {
     enabled: unique.length > 0,
     staleTime: 50 * 60 * 1000,
     queryFn: async () => {
-      const { data, error } = await supabase.storage.from("wardrobe").createSignedUrls(unique, 3600);
+      const { data, error } = await supabase.storage
+        .from("wardrobe")
+        .createSignedUrls(unique, 3600);
       if (error) throw error;
       const map: Record<string, string> = {};
       for (const d of data ?? []) if (d.path && d.signedUrl) map[d.path] = d.signedUrl;

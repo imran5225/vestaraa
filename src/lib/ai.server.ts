@@ -42,7 +42,8 @@ export async function generateStructured<T>(opts: {
     return out;
   } catch (error) {
     if (error instanceof AiUnavailableError) throw error;
-    if (NoObjectGeneratedError.isInstance(error)) throw new AiUnavailableError("AI returned an invalid response");
+    if (NoObjectGeneratedError.isInstance(error))
+      throw new AiUnavailableError("AI returned an invalid response");
     const status = (error as { statusCode?: number }).statusCode;
     console.error("AI gateway call failed", status ?? "");
     if (status === 402) throw new AiUnavailableError("AI credits are exhausted");

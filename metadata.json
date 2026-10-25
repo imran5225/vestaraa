@@ -1,0 +1,5 @@
+{
+  "name": "VÉSTARA — Your Personal AI Style Agent",
+  "description": "Personalised, occasion-aware outfits built from the clothes you already own.",
+  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

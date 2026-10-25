@@ -33,11 +33,35 @@ export const CATEGORY_SLOT: Record<Category, Slot> = {
 };
 
 export const COLORS = [
-  "white", "black", "grey", "navy", "blue", "light blue", "beige", "cream", "camel", "brown",
-  "olive", "green", "red", "burgundy", "pink", "yellow", "orange", "purple", "denim",
+  "white",
+  "black",
+  "grey",
+  "navy",
+  "blue",
+  "light blue",
+  "beige",
+  "cream",
+  "camel",
+  "brown",
+  "olive",
+  "green",
+  "red",
+  "burgundy",
+  "pink",
+  "yellow",
+  "orange",
+  "purple",
+  "denim",
 ] as const;
 export const PATTERNS = ["solid", "striped", "checked", "printed", "floral", "textured"] as const;
-export const STYLES = ["casual", "smart-casual", "formal", "streetwear", "athleisure", "party"] as const;
+export const STYLES = [
+  "casual",
+  "smart-casual",
+  "formal",
+  "streetwear",
+  "athleisure",
+  "party",
+] as const;
 export const FITS = ["slim", "regular", "relaxed", "oversized", "tailored"] as const;
 export const SEASONS = ["spring", "summer", "autumn", "winter"] as const;
 export const OCCASIONS = [

@@ -81,7 +81,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "VÉSTARA — Your Personal AI Style Agent" },
-      { name: "description", content: "Personalised, occasion-aware outfits built from the clothes you already own." },
+      {
+        name: "description",
+        content: "Personalised, occasion-aware outfits built from the clothes you already own.",
+      },
+      { property: "og:title", content: "VÉSTARA — Your Personal AI Style Agent" },
+      {
+        property: "og:description",
+        content: "Personalised, occasion-aware outfits built from the clothes you already own.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

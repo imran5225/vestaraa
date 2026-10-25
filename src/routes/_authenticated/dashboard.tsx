@@ -14,7 +14,14 @@ import { generateOutfit, getWeather, loadSampleWardrobe } from "@/lib/styling.fu
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
-  head: () => ({ meta: [{ title: "Today — VÉSTARA" }, { name: "description", content: "Today's outfit, built from your wardrobe." }, { property: "og:title", content: "Today — VÉSTARA" }, { property: "og:description", content: "Today's outfit, built from your wardrobe." }] }),
+  head: () => ({
+    meta: [
+      { title: "Today — VÉSTARA" },
+      { name: "description", content: "Today's outfit, built from your wardrobe." },
+      { property: "og:title", content: "Today — VÉSTARA" },
+      { property: "og:description", content: "Today's outfit, built from your wardrobe." },
+    ],
+  }),
   component: Page,
 });
 
@@ -37,7 +44,12 @@ export function useLoadSamples() {
   const fn = useServerFn(loadSampleWardrobe);
   return useMutation({
     mutationFn: () => fn(),
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ["wardrobe"] }); toast.success(r.added ? `Added ${r.added} sample pieces.` : "Sample wardrobe already loaded."); },
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["wardrobe"] });
+      toast.success(
+        r.added ? `Added ${r.added} sample pieces.` : "Sample wardrobe already loaded.",
+      );
+    },
     onError: () => toast.error("Couldn't add the sample wardrobe."),
   });
 }
@@ -47,7 +59,11 @@ function Page() {
   const wardrobe = useQuery(wardrobeQuery);
   const recent = useQuery(outfitsQuery("all", 1));
   const weatherFn = useServerFn(getWeather);
-  const weather = useQuery({ queryKey: ["weather"], queryFn: () => weatherFn(), staleTime: 15 * 60 * 1000 });
+  const weather = useQuery({
+    queryKey: ["weather"],
+    queryFn: () => weatherFn(),
+    staleTime: 15 * 60 * 1000,
+  });
   const [occasion, setOccasion] = useState("casual");
   const [currentId, setCurrentId] = useState<string | null>(null);
   const shownId = currentId ?? recent.data?.[0]?.id ?? null;
@@ -60,43 +76,78 @@ function Page() {
 
   return (
     <AppShell>
-      <PageHeader eyebrow="Today" title={name ? `Good to see you, ${name}.` : "Your look for today"} body="Pick the occasion and we'll build a complete outfit from your wardrobe." />
+      <PageHeader
+        eyebrow="Today"
+        title={name ? `Good to see you, ${name}.` : "Your look for today"}
+        body="Pick the occasion and we'll build a complete outfit from your wardrobe."
+      />
 
       {profile.data && !profile.data.onboarded && (
         <div className="mb-8 flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-champagne/30 p-4 text-sm">
           <span>Tell us your style and favourite colours for sharper suggestions.</span>
-          <Button asChild size="sm" variant="quiet"><Link to="/profile">Set up your profile</Link></Button>
+          <Button asChild size="sm" variant="quiet">
+            <Link to="/profile">Set up your profile</Link>
+          </Button>
         </div>
       )}
 
       {weather.data?.status === "ok" && (
         <p className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <CloudSun className="h-4 w-4 text-bronze" /> {weather.data.weather.city}: {Math.round(weather.data.weather.temperatureC)}°C, {weather.data.weather.description}
+          <CloudSun className="h-4 w-4 text-bronze" /> {weather.data.weather.city}:{" "}
+          {Math.round(weather.data.weather.temperatureC)}°C, {weather.data.weather.description}
         </p>
       )}
 
-      {wardrobe.isLoading ? <LoadingState label="Loading your wardrobe" /> : wardrobe.error ? (
+      {wardrobe.isLoading ? (
+        <LoadingState label="Loading your wardrobe" />
+      ) : wardrobe.error ? (
         <ErrorState message="We couldn't load your wardrobe." onRetry={() => wardrobe.refetch()} />
       ) : count === 0 ? (
-        <EmptyState icon={<Shirt className="h-8 w-8" />} title="Your wardrobe is empty" body="Add a few pieces — at least a top, a bottom and shoes — or try the sample wardrobe to explore."
-          action={<>
-            <Button asChild variant="hero"><Link to="/wardrobe">Add clothes</Link></Button>
-            <Button variant="quiet" disabled={samples.isPending} onClick={() => samples.mutate()}>Load sample wardrobe</Button>
-          </>} />
+        <EmptyState
+          icon={<Shirt className="h-8 w-8" />}
+          title="Your wardrobe is empty"
+          body="Add a few pieces — at least a top, a bottom and shoes — or try the sample wardrobe to explore."
+          action={
+            <>
+              <Button asChild variant="hero">
+                <Link to="/wardrobe">Add clothes</Link>
+              </Button>
+              <Button variant="quiet" disabled={samples.isPending} onClick={() => samples.mutate()}>
+                Load sample wardrobe
+              </Button>
+            </>
+          }
+        />
       ) : (
         <div className="space-y-8">
           <div className="flex flex-wrap items-center gap-2">
             {OCCASIONS.map((o) => (
-              <button key={o.value} onClick={() => setOccasion(o.value)}
-                className={cn("rounded-full border px-4 py-2 text-sm transition-colors", occasion === o.value ? "border-primary bg-primary text-primary-foreground" : "bg-card hover:border-bronze")}>
+              <button
+                key={o.value}
+                onClick={() => setOccasion(o.value)}
+                className={cn(
+                  "rounded-full border px-4 py-2 text-sm transition-colors",
+                  occasion === o.value
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "bg-card hover:border-bronze",
+                )}
+              >
                 {o.label}
               </button>
             ))}
-            <Button variant="hero" className="ml-auto" disabled={gen.isPending} onClick={() => gen.mutate({ occasion })}>
-              <Sparkles className={cn(gen.isPending && "animate-pulse")} /> {gen.isPending ? "Styling…" : "Style me"}
+            <Button
+              variant="hero"
+              className="ml-auto"
+              disabled={gen.isPending}
+              onClick={() => gen.mutate({ occasion })}
+            >
+              <Sparkles className={cn(gen.isPending && "animate-pulse")} />{" "}
+              {gen.isPending ? "Styling…" : "Style me"}
             </Button>
           </div>
-          {outfit.isLoading ? <LoadingState label="Loading your look" /> : outfit.data ? (
+          {outfit.isLoading ? (
+            <LoadingState label="Loading your look" />
+          ) : outfit.data ? (
             <OutfitCard outfit={outfit.data} onReplaced={setCurrentId} />
           ) : (
             <EmptyState title="No look yet" body="Choose an occasion and tap “Style me”." />

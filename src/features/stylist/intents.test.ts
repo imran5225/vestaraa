@@ -3,10 +3,17 @@ import { parseIntent } from "./intents";
 
 describe("parseIntent", () => {
   it("detects an occasion recommendation", () => {
-    expect(parseIntent("I'm heading to college today. What should I wear?")).toEqual({ intent: "recommend", occasion: "college", slot: null });
+    expect(parseIntent("I'm heading to college today. What should I wear?")).toEqual({
+      intent: "recommend",
+      occasion: "college",
+      slot: null,
+    });
   });
   it("detects a shoe swap", () => {
-    expect(parseIntent("I don't like those shoes. Suggest something else.")).toMatchObject({ intent: "swap", slot: "shoes" });
+    expect(parseIntent("I don't like those shoes. Suggest something else.")).toMatchObject({
+      intent: "swap",
+      slot: "shoes",
+    });
   });
   it("detects a formal request", () => {
     expect(parseIntent("Give me a more formal look using my wardrobe.").intent).toBe("formal");

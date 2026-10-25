@@ -10,8 +10,21 @@ import {
   type EngineItem,
 } from "./engine";
 
-const item = (id: string, category: EngineItem["category"], color: string, style = "casual", pattern = "solid"): EngineItem => ({
-  id, name: id, category, main_color: color, secondary_colors: [], pattern, style, seasons: [],
+const item = (
+  id: string,
+  category: EngineItem["category"],
+  color: string,
+  style = "casual",
+  pattern = "solid",
+): EngineItem => ({
+  id,
+  name: id,
+  category,
+  main_color: color,
+  secondary_colors: [],
+  pattern,
+  style,
+  seasons: [],
 });
 
 const wardrobe: EngineItem[] = [
@@ -25,8 +38,12 @@ const wardrobe: EngineItem[] = [
 ];
 
 const ctx = (over: Partial<EngineContext> = {}): EngineContext => ({
-  occasion: "casual", favoriteColors: [], avoidedColors: [], preferredStyles: [],
-  feedback: { colorAffinity: {}, itemAffinity: {}, likedSignatures: [] }, ...over,
+  occasion: "casual",
+  favoriteColors: [],
+  avoidedColors: [],
+  preferredStyles: [],
+  feedback: { colorAffinity: {}, itemAffinity: {}, likedSignatures: [] },
+  ...over,
 });
 
 const ids = new Set(wardrobe.map((i) => i.id));
@@ -41,7 +58,10 @@ describe("recommendOutfit", () => {
   });
 
   it("reports missing required categories instead of inventing items", () => {
-    const r = recommendOutfit(wardrobe.filter((i) => i.category !== "shoes"), ctx());
+    const r = recommendOutfit(
+      wardrobe.filter((i) => i.category !== "shoes"),
+      ctx(),
+    );
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.missing).toEqual(["shoes"]);
   });
@@ -65,7 +85,9 @@ describe("recommendOutfit", () => {
     const base = recommendOutfit(wardrobe, ctx());
     if (!base.ok) throw new Error();
     const shoes = base.outfit.slots.shoes!;
-    const fb = buildFeedbackSignals([1, 2, 3].map(() => ({ action: "dislike", item_ids: [shoes], colors: [] })));
+    const fb = buildFeedbackSignals(
+      [1, 2, 3].map(() => ({ action: "dislike", item_ids: [shoes], colors: [] })),
+    );
     const after = recommendOutfit(wardrobe, ctx({ feedback: fb }));
     if (!after.ok) throw new Error();
     expect(after.outfit.slots.shoes).not.toBe(shoes);
@@ -83,20 +105,31 @@ describe("swapSlot", () => {
   });
 
   it("fails clearly when there is nothing to swap in", () => {
-    const r = swapSlot(wardrobe, { top: "tee", bottom: "jeans", shoes: "sneakers", outerwear: "blazer" }, "outerwear", ctx());
+    const r = swapSlot(
+      wardrobe,
+      { top: "tee", bottom: "jeans", shoes: "sneakers", outerwear: "blazer" },
+      "outerwear",
+      ctx(),
+    );
     expect(r.ok).toBe(false);
   });
 });
 
 describe("validateSlots", () => {
   it("rejects ids that are not in the wardrobe", () => {
-    expect(validateSlots(wardrobe, { top: "ghost", bottom: "jeans", shoes: "sneakers" })).toBeNull();
+    expect(
+      validateSlots(wardrobe, { top: "ghost", bottom: "jeans", shoes: "sneakers" }),
+    ).toBeNull();
   });
   it("rejects items placed in the wrong slot", () => {
-    expect(validateSlots(wardrobe, { top: "jeans", bottom: "chinos", shoes: "sneakers" })).toBeNull();
+    expect(
+      validateSlots(wardrobe, { top: "jeans", bottom: "chinos", shoes: "sneakers" }),
+    ).toBeNull();
   });
   it("accepts a valid composition", () => {
-    expect(validateSlots(wardrobe, { top: "tee", bottom: "jeans", shoes: "sneakers" })).not.toBeNull();
+    expect(
+      validateSlots(wardrobe, { top: "tee", bottom: "jeans", shoes: "sneakers" }),
+    ).not.toBeNull();
   });
 });
 

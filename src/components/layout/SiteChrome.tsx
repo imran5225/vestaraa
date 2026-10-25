@@ -3,21 +3,10 @@ import type { ReactNode } from "react";
 import { Wordmark } from "@/components/brand/Wordmark";
 import { Button } from "@/components/ui/button";
 
+import { Navbar } from "./Navbar";
+
 export function SiteHeader() {
-  return (
-    <header className="sticky top-0 z-40 border-b glass">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-5">
-        <Wordmark />
-        <nav className="flex items-center gap-1 text-sm" aria-label="Site">
-          <Link to="/" hash="features" className="hidden rounded-full px-4 py-2 text-muted-foreground hover:text-foreground sm:inline">Features</Link>
-          <Link to="/" hash="how-it-works" className="hidden rounded-full px-4 py-2 text-muted-foreground hover:text-foreground sm:inline">How It Works</Link>
-          <Button asChild variant="quiet" size="sm" className="ml-2">
-            <Link to="/auth">Sign In</Link>
-          </Button>
-        </nav>
-      </div>
-    </header>
-  );
+  return <Navbar />;
 }
 
 export function SiteFooter() {
@@ -26,12 +15,20 @@ export function SiteFooter() {
       <div className="mx-auto flex max-w-6xl flex-col gap-6 px-5 py-12 md:flex-row md:items-center md:justify-between">
         <div>
           <Wordmark className="text-xl" />
-          <p className="mt-2 text-sm text-muted-foreground">From wardrobe to the right outfit — powered by AI.</p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            From wardrobe to the right outfit — powered by AI.
+          </p>
         </div>
         <nav className="flex gap-6 text-sm text-muted-foreground" aria-label="Legal">
-          <Link to="/privacy" className="hover:text-foreground">Privacy</Link>
-          <Link to="/terms" className="hover:text-foreground">Terms</Link>
-          <Link to="/contact" className="hover:text-foreground">Contact</Link>
+          <Link to="/privacy" className="hover:text-foreground">
+            Privacy
+          </Link>
+          <Link to="/terms" className="hover:text-foreground">
+            Terms
+          </Link>
+          <Link to="/contact" className="hover:text-foreground">
+            Contact
+          </Link>
         </nav>
       </div>
     </footer>

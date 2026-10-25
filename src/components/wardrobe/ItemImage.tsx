@@ -19,7 +19,12 @@ export function ItemImage({ item, signedUrls, className }: Props) {
   return (
     <div className={cn("relative aspect-[4/5] overflow-hidden rounded-xl bg-surface", className)}>
       {src ? (
-        <img src={src} alt={item.name} loading="lazy" className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" />
+        <img
+          src={src}
+          alt={item.name}
+          loading="lazy"
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+        />
       ) : (
         <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-taupe">
           <Shirt className="h-8 w-8" strokeWidth={1.2} />
