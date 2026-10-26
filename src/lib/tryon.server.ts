@@ -78,6 +78,21 @@ async function resolveImageData(
     throw new TryOnError("Invalid photo path.");
   }
 
+  // Check if HTTP / HTTPS URL (e.g. sample image asset or external CDN URL)
+  if (pathOrUri.startsWith("http://") || pathOrUri.startsWith("https://")) {
+    try {
+      const res = await fetch(pathOrUri);
+      if (res.ok) {
+        const arrayBuffer = await res.arrayBuffer();
+        const bytes = new Uint8Array(arrayBuffer);
+        const mime = res.headers.get("content-type") || "image/jpeg";
+        return { base64: toBase64(bytes), mimeType: mime, rawBytes: bytes };
+      }
+    } catch (err) {
+      console.warn("HTTP image fetch warning:", err);
+    }
+  }
+
   // Otherwise download from Supabase storage
   try {
     const { data, error } = await supabase.storage.from("wardrobe").download(pathOrUri);

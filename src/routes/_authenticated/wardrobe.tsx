@@ -1,8 +1,17 @@
 import { useState, type FormEvent } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Camera, Image as ImageIcon, Pencil, Plus, Shirt, Sparkles, Trash2 } from "lucide-react";
+import {
+  Camera,
+  Image as ImageIcon,
+  Pencil,
+  Plus,
+  Shirt,
+  Sparkles,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/layout/AppShell";
@@ -58,6 +67,7 @@ const EMPTY: Draft = {
 };
 
 function Page() {
+  const navigate = useNavigate();
   const q = useQuery(wardrobeQuery);
   const qc = useQueryClient();
   const [filter, setFilter] = useState("all");
@@ -131,22 +141,36 @@ function Page() {
           }
         />
       ) : (
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {items.map((i) => (
-            <div key={i.id} className="group">
-              <ItemImage item={i} signedUrls={signed.data} />
-              <div className="mt-2 flex items-start justify-between gap-2">
+            <div
+              key={i.id}
+              className="group flex flex-col rounded-2xl border border-border/80 bg-card p-3 shadow-xs transition-all hover:border-bronze/50 hover:shadow-soft"
+            >
+              <div
+                className="cursor-pointer overflow-hidden rounded-xl"
+                onClick={() =>
+                  navigate({
+                    to: "/try-on",
+                    search: { itemId: i.id },
+                  })
+                }
+                title={`Try on ${i.name}`}
+              >
+                <ItemImage item={i} signedUrls={signed.data} />
+              </div>
+              <div className="mt-2.5 flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate text-sm">{i.name}</p>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="truncate text-sm font-medium text-foreground">{i.name}</p>
+                  <p className="text-xs text-muted-foreground capitalize">
                     {categoryLabel(i.category)} · {i.main_color}
                   </p>
                 </div>
-                <div className="flex shrink-0">
+                <div className="flex shrink-0 items-center">
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
                     aria-label={`Edit ${i.name}`}
                     onClick={() =>
                       setEditing({
@@ -161,19 +185,32 @@ function Page() {
                       })
                     }
                   >
-                    <Pencil />
+                    <Pencil className="size-3.5" />
                   </Button>
                   <Button
                     size="icon"
                     variant="ghost"
-                    className="h-7 w-7"
+                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
                     aria-label={`Delete ${i.name}`}
                     onClick={() => confirm(`Remove “${i.name}”?`) && del.mutate(i)}
                   >
-                    <Trash2 />
+                    <Trash2 className="size-3.5" />
                   </Button>
                 </div>
               </div>
+              <Button
+                size="sm"
+                variant="quiet"
+                className="mt-3 w-full gap-1.5 text-xs border border-bronze/35 text-bronze hover:bg-bronze/10"
+                onClick={() =>
+                  navigate({
+                    to: "/try-on",
+                    search: { itemId: i.id },
+                  })
+                }
+              >
+                <Wand2 className="size-3.5" /> Try On
+              </Button>
             </div>
           ))}
         </div>

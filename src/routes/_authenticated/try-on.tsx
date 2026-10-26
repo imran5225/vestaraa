@@ -4,7 +4,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import {
   Camera,
-  Download,
   RotateCcw,
   Upload,
   Wand2,
@@ -15,14 +14,13 @@ import {
   AlertCircle,
   X,
   RefreshCw,
-  Image as ImageIcon,
-  CheckCircle2,
-  XCircle,
-  Layers,
   Rotate3d,
   UserCheck,
   SlidersHorizontal,
   ShieldAlert,
+  CheckCircle2,
+  XCircle,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
@@ -43,12 +41,14 @@ import {
   getDefaultBodyProportions,
 } from "@/lib/pose-analyzer";
 import type { WardrobeItem } from "@/lib/domain";
+import { SAMPLE_IMAGES } from "@/lib/sample-images";
 import studioModelUrl from "@/assets/studio-model.jpg";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/try-on")({
   validateSearch: (search: Record<string, unknown>) => ({
     outfitId: typeof search.outfitId === "string" ? search.outfitId : undefined,
+    itemId: typeof search.itemId === "string" ? search.itemId : undefined,
     tab: typeof search.tab === "string" ? search.tab : undefined,
   }),
   head: () => ({
@@ -90,6 +90,26 @@ interface TryOnLookRecord {
   styling: LookStyling;
   created_at: string;
   warning?: string | null;
+}
+
+/** Convert browser-accessible image URL or asset URL to a base64 Data URI */
+async function urlToDataUri(url: string): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith("data:")) return url;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result as string);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn("Could not convert garment url to data URI:", e);
+    return null;
+  }
 }
 
 function VirtualTryOnPage() {
@@ -172,8 +192,31 @@ function VirtualTryOnPage() {
   useEffect(() => {
     if (search.outfitId && search.outfitId !== selectedOutfitId) {
       setSelectedOutfitId(search.outfitId);
+      setSelectedWardrobeItem(null);
+      setGeneratedLook(null);
+      setRotatedViews(null);
     }
   }, [search.outfitId, selectedOutfitId]);
+
+  // Sync selectedWardrobeItem with search itemId
+  useEffect(() => {
+    if (search.itemId && wardrobe.data) {
+      const found = wardrobe.data.find((w) => w.id === search.itemId);
+      if (found && selectedWardrobeItem?.id !== found.id) {
+        setSelectedWardrobeItem(found);
+        setSelectedOutfitId(null);
+        setGeneratedLook(null);
+        setRotatedViews(null);
+      }
+    }
+  }, [search.itemId, wardrobe.data, selectedWardrobeItem?.id]);
+
+  // Auto-select first wardrobe item if none selected and wardrobe data loads
+  useEffect(() => {
+    if (!selectedWardrobeItem && !selectedOutfitId && wardrobe.data && wardrobe.data.length > 0) {
+      setSelectedWardrobeItem(wardrobe.data[0]);
+    }
+  }, [wardrobe.data, selectedWardrobeItem, selectedOutfitId]);
 
   // Find active outfit object
   const activeOutfit = useMemo(() => {
@@ -202,21 +245,99 @@ function VirtualTryOnPage() {
       }
     } else if (selectedWardrobeItem) {
       const hex = colorNameToHex(selectedWardrobeItem.main_color);
+      const cat = (selectedWardrobeItem.category || "").toLowerCase();
       if (hex) {
-        if (selectedWardrobeItem.category === "tops") topColor = hex;
-        if (selectedWardrobeItem.category === "bottoms") bottomColor = hex;
-        if (selectedWardrobeItem.category === "outerwear") {
+        if (cat === "top" || cat === "shirt" || cat === "tops") {
+          topColor = hex;
+        } else if (
+          cat === "bottom" ||
+          cat === "trousers" ||
+          cat === "jeans" ||
+          cat === "bottoms" ||
+          cat === "skirt"
+        ) {
+          bottomColor = hex;
+        } else if (cat === "dress" || cat === "one-piece" || cat === "dresses") {
+          topColor = hex;
+          bottomColor = hex;
+        } else if (cat === "outerwear" || cat === "jacket" || cat === "coat") {
           outerwearColor = hex;
           hasOuterwear = true;
+        } else if (
+          cat === "shoes" ||
+          cat === "footwear" ||
+          cat === "sneakers" ||
+          cat === "loafers"
+        ) {
+          shoesColor = hex;
         }
-        if (selectedWardrobeItem.category === "shoes") shoesColor = hex;
       }
     }
 
     return { topColor, bottomColor, outerwearColor, shoesColor, hasOuterwear };
   }, [activeOutfit, selectedWardrobeItem]);
 
-  // Effective description for try-on
+  // Sign ALL wardrobe items and outfit pieces so thumbnails never fail
+  const allGarmentPaths = useMemo(() => {
+    const set = new Set<string>();
+    if (wardrobe.data) {
+      for (const w of wardrobe.data) {
+        if (w.image_path) set.add(w.image_path);
+      }
+    }
+    if (outfits.data) {
+      for (const o of outfits.data) {
+        for (const p of o.pieces) {
+          if (p.item.image_path) set.add(p.item.image_path);
+        }
+      }
+    }
+    return Array.from(set);
+  }, [wardrobe.data, outfits.data]);
+
+  const signedGarments = useSignedUrls(allGarmentPaths);
+
+  // Active selected garment info for staging & try-on
+  const activeGarmentInfo = useMemo(() => {
+    if (selectedWardrobeItem) {
+      const src = selectedWardrobeItem.sample_key
+        ? SAMPLE_IMAGES[selectedWardrobeItem.sample_key]
+        : selectedWardrobeItem.image_path
+          ? signedGarments.data?.[selectedWardrobeItem.image_path]
+          : null;
+      return {
+        type: "item" as const,
+        id: selectedWardrobeItem.id,
+        name: selectedWardrobeItem.name,
+        category: selectedWardrobeItem.category,
+        color: selectedWardrobeItem.main_color ?? "neutral",
+        style: selectedWardrobeItem.style ?? "casual",
+        imageSrc: src,
+        rawItem: selectedWardrobeItem,
+      };
+    }
+    if (activeOutfit) {
+      const firstPiece = activeOutfit.pieces[0];
+      const src = firstPiece?.item.sample_key
+        ? SAMPLE_IMAGES[firstPiece.item.sample_key]
+        : firstPiece?.item.image_path
+          ? signedGarments.data?.[firstPiece.item.image_path]
+          : null;
+      return {
+        type: "outfit" as const,
+        id: activeOutfit.id,
+        name: activeOutfit.explanation || activeOutfit.mood || "Curated Ensemble",
+        category: "outfit",
+        color: firstPiece?.item.main_color ?? "assorted",
+        style: activeOutfit.occasion ?? "casual",
+        imageSrc: src,
+        rawOutfit: activeOutfit,
+      };
+    }
+    return null;
+  }, [selectedWardrobeItem, activeOutfit, signedGarments.data]);
+
+  // Effective description for try-on prompt
   const effectiveDescription = useMemo(() => {
     if (customDescription.trim()) return customDescription.trim();
     if (activeOutfit) {
@@ -229,20 +350,32 @@ function VirtualTryOnPage() {
     return "Curated style ensemble";
   }, [customDescription, activeOutfit, selectedWardrobeItem]);
 
-  // Image URLs for garments
-  const garmentUrls = useMemo(() => {
-    const list: string[] = [];
-    if (activeOutfit) {
-      for (const p of activeOutfit.pieces) {
-        if (p.item.image_path) list.push(p.item.image_path);
-      }
-    } else if (selectedWardrobeItem?.image_path) {
-      list.push(selectedWardrobeItem.image_path);
-    }
-    return list;
-  }, [activeOutfit, selectedWardrobeItem]);
+  // Handler to select an individual wardrobe item
+  const handleSelectWardrobeItem = (item: WardrobeItem) => {
+    setSelectedWardrobeItem(item);
+    setSelectedOutfitId(null);
+    setCustomDescription("");
+    setGeneratedLook(null);
+    setRotatedViews(null);
+    setActiveViewMode("slider");
+    setTryOnError(null);
+    toast.info(`Selected ${item.name} for try-on.`);
+  };
 
-  const signedGarments = useSignedUrls(garmentUrls);
+  // Handler to select a stylist outfit
+  const handleSelectOutfit = (outfitId: string) => {
+    setSelectedOutfitId(outfitId);
+    setSelectedWardrobeItem(null);
+    setCustomDescription("");
+    setGeneratedLook(null);
+    setRotatedViews(null);
+    setActiveViewMode("slider");
+    setTryOnError(null);
+    const found = outfits.data?.find((o) => o.id === outfitId);
+    if (found) {
+      toast.info(`Selected ${found.explanation?.slice(0, 30) || "outfit"} for try-on.`);
+    }
+  };
 
   // 1. Process Uploaded Photo and 2. Generate Virtual Twin
   const processUploadedFile = async (file: File) => {
@@ -367,24 +500,28 @@ function VirtualTryOnPage() {
       setTryOnError(null);
       const photoToUse = virtualTwinUri || userPhotoDataUri || studioModelUrl;
 
-      // Check cache first
-      const cacheKey = `${photoToUse.slice(0, 40)}_${effectiveDescription}`;
+      // Prepare garment image URI: convert to data URI if available so Gemini receives the actual garment photo
+      let garmentPathToPass: string | null = null;
+      if (activeGarmentInfo?.imageSrc) {
+        const dataUri = await urlToDataUri(activeGarmentInfo.imageSrc);
+        garmentPathToPass = dataUri || activeGarmentInfo.imageSrc;
+      } else if (selectedWardrobeItem?.image_path) {
+        garmentPathToPass = selectedWardrobeItem.image_path;
+      } else if (activeOutfit?.pieces[0]?.item.image_path) {
+        garmentPathToPass = activeOutfit.pieces[0].item.image_path;
+      }
+
+      // Check cache with distinct garment ID to prevent stale looks
+      const cacheKey = `${photoToUse.slice(0, 40)}_${activeGarmentInfo?.id || ""}_${effectiveDescription}`;
       const cached = cachedLooksRef.current.get(cacheKey);
       if (cached) {
         return { id: cached.id, look: cached };
       }
 
-      let garmentPath: string | null = null;
-      if (activeOutfit && activeOutfit.pieces[0]?.item.image_path) {
-        garmentPath = activeOutfit.pieces[0].item.image_path;
-      } else if (selectedWardrobeItem?.image_path) {
-        garmentPath = selectedWardrobeItem.image_path;
-      }
-
       const response = await tryOnFn({
         data: {
           personPath: photoToUse,
-          garmentPath: garmentPath,
+          garmentPath: garmentPathToPass,
           description: effectiveDescription,
           occasion: selectedOccasion,
           extras: null,
@@ -714,107 +851,112 @@ function VirtualTryOnPage() {
               Select Outfit or Garment to Try On
             </h3>
             <p className="text-xs text-muted-foreground">
-              Pick from AI Stylist combinations, saved outfits, or your personal wardrobe.
+              Pick any dress, garment, or stylist ensemble to instantly update the try-on display.
             </p>
           </div>
-          {activeOutfit && (
-            <Badge variant="champagne" className="gap-1 text-xs">
-              <Sparkles className="size-3" /> Loaded:{" "}
-              {activeOutfit.explanation?.slice(0, 32) || "Stylist Outfit"}
+          {activeGarmentInfo && (
+            <Badge variant="champagne" className="gap-1.5 text-xs py-1 px-3">
+              <Sparkles className="size-3 text-bronze" /> Selected:{" "}
+              <strong className="font-semibold text-foreground">{activeGarmentInfo.name}</strong>
             </Badge>
           )}
         </div>
 
-        {/* Saved & Recommended Outfits */}
-        {outfits.data && outfits.data.length > 0 && (
+        {/* My Wardrobe Items (Selectable Grid/Carousel) */}
+        {wardrobe.data && wardrobe.data.length > 0 && (
           <div className="mb-5">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              From Your Stylist & Recommendations
-            </p>
-            <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-              {outfits.data.map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => {
-                    setSelectedOutfitId(o.id);
-                    setSelectedWardrobeItem(null);
-                    setCustomDescription("");
-                    setGeneratedLook(null);
-                    setRotatedViews(null);
-                    setActiveViewMode("slider");
-                  }}
-                  className={cn(
-                    "flex min-w-[240px] max-w-[280px] flex-col rounded-2xl border p-3 text-left transition-all",
-                    selectedOutfitId === o.id
-                      ? "border-bronze bg-champagne/15 shadow-sm ring-1 ring-bronze"
-                      : "border-border bg-surface hover:border-bronze/40",
-                  )}
-                >
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="font-medium text-foreground capitalize">
-                      {o.occasion || "Look"}
-                    </span>
-                    <Badge variant="outline" className="text-[10px]">
-                      {o.pieces.length} pieces
-                    </Badge>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {o.explanation || o.mood || "Curated ensemble"}
-                  </p>
-                  <div className="mt-2.5 flex items-center gap-1.5 overflow-hidden">
-                    {o.pieces.map((p) => (
-                      <span
-                        key={p.slot}
-                        className="size-3.5 rounded-full border border-border/80 shadow-xs"
-                        style={{
-                          backgroundColor: colorNameToHex(p.item.main_color) || "#ddd",
-                        }}
-                        title={`${p.item.name} (${p.item.main_color})`}
-                      />
-                    ))}
-                  </div>
-                </button>
-              ))}
+            <div className="mb-2.5 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                My Wardrobe Pieces ({wardrobe.data.length})
+              </p>
+              <span className="text-[11px] text-muted-foreground">
+                Click any piece to stage it immediately
+              </span>
+            </div>
+            <div className="flex gap-3.5 overflow-x-auto pb-3 pt-1 scrollbar-thin">
+              {wardrobe.data.map((item) => {
+                const isSelected = selectedWardrobeItem?.id === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleSelectWardrobeItem(item)}
+                    className={cn(
+                      "group relative flex min-w-[140px] max-w-[150px] shrink-0 flex-col items-center rounded-2xl border p-2.5 text-center transition-all duration-200 cursor-pointer",
+                      isSelected
+                        ? "border-bronze bg-champagne/25 ring-2 ring-bronze shadow-md scale-[1.03]"
+                        : "border-border/80 bg-surface hover:border-bronze/50 hover:bg-surface/90 hover:scale-[1.01]",
+                    )}
+                  >
+                    <div className="size-20 overflow-hidden rounded-xl bg-card/90 shadow-2xs">
+                      <ItemImage item={item} signedUrls={signedGarments.data} fit="contain" />
+                    </div>
+                    <p className="mt-2 line-clamp-1 text-xs font-semibold text-foreground">
+                      {item.name}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground capitalize">
+                      {item.category} · {item.main_color}
+                    </p>
+                    {isSelected && (
+                      <Badge
+                        variant="champagne"
+                        className="mt-1.5 text-[10px] px-1.5 py-0 gap-1 font-medium"
+                      >
+                        <Check className="size-2.5 text-emerald-600" /> Selected
+                      </Badge>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
 
-        {/* My Wardrobe Items */}
-        {wardrobe.data && wardrobe.data.length > 0 && (
+        {/* Saved & Recommended Outfits */}
+        {outfits.data && outfits.data.length > 0 && (
           <div className="mb-4">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Or Pick Individual Wardrobe Item
+              Or Choose Curated Ensemble
             </p>
             <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-thin">
-              {wardrobe.data.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setSelectedWardrobeItem(item);
-                    setSelectedOutfitId(null);
-                    setCustomDescription("");
-                    setGeneratedLook(null);
-                    setRotatedViews(null);
-                    setActiveViewMode("slider");
-                  }}
-                  className={cn(
-                    "flex min-w-[130px] flex-col items-center rounded-2xl border p-2 text-center transition-all",
-                    selectedWardrobeItem?.id === item.id
-                      ? "border-bronze bg-champagne/15 ring-1 ring-bronze"
-                      : "border-border bg-surface hover:border-bronze/40",
-                  )}
-                >
-                  <div className="size-16 overflow-hidden rounded-xl bg-card">
-                    <ItemImage item={item} signedUrls={signedGarments.data} />
-                  </div>
-                  <p className="mt-2 line-clamp-1 text-xs font-medium text-foreground">
-                    {item.name}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground capitalize">
-                    {item.category} · {item.main_color}
-                  </p>
-                </button>
-              ))}
+              {outfits.data.map((o) => {
+                const isSelected = selectedOutfitId === o.id;
+                return (
+                  <button
+                    key={o.id}
+                    onClick={() => handleSelectOutfit(o.id)}
+                    className={cn(
+                      "flex min-w-[240px] max-w-[280px] shrink-0 flex-col rounded-2xl border p-3 text-left transition-all duration-200 cursor-pointer",
+                      isSelected
+                        ? "border-bronze bg-champagne/25 shadow-md ring-2 ring-bronze scale-[1.02]"
+                        : "border-border/80 bg-surface hover:border-bronze/50",
+                    )}
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-foreground capitalize">
+                        {o.occasion || "Curated Look"}
+                      </span>
+                      <Badge variant="outline" className="text-[10px]">
+                        {o.pieces.length} pieces
+                      </Badge>
+                    </div>
+                    <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                      {o.explanation || o.mood || "Curated ensemble"}
+                    </p>
+                    <div className="mt-2.5 flex items-center gap-1.5 overflow-hidden">
+                      {o.pieces.map((p) => (
+                        <span
+                          key={p.slot}
+                          className="size-3.5 rounded-full border border-border/80 shadow-xs"
+                          style={{
+                            backgroundColor: colorNameToHex(p.item.main_color) || "#ddd",
+                          }}
+                          title={`${p.item.name} (${p.item.main_color})`}
+                        />
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -828,7 +970,7 @@ function VirtualTryOnPage() {
             value={customDescription}
             onChange={(e) => setCustomDescription(e.target.value)}
             placeholder="e.g. Navy slim-fit blazer layered over a crisp white crewneck tee and tailored charcoal trousers."
-            className="mt-1 h-18 text-xs"
+            className="mt-1 h-16 text-xs"
           />
         </div>
       </section>
@@ -849,6 +991,9 @@ function VirtualTryOnPage() {
                   <h3 className="font-display text-xl text-foreground">
                     Dressing Your Virtual Me…
                   </h3>
+                  <p className="mt-1 text-sm font-medium text-bronze">
+                    {activeGarmentInfo ? activeGarmentInfo.name : "Selected Garments"}
+                  </p>
                   <p className="mt-2 max-w-sm text-xs text-muted-foreground leading-relaxed">
                     Gemini AI is fitting the selected garments to your Virtual Me twin with
                     realistic fabric drape, natural folds, and studio lighting.
@@ -857,63 +1002,81 @@ function VirtualTryOnPage() {
               ) : generatedLook && generatedLook.resultImageUri ? (
                 /* Result View (Slider or 4-Angle Rotate View) */
                 <div className="w-full max-w-lg flex flex-col items-center">
-                  {/* Mode Selector Toggle (Before/After vs 360 Rotate View) */}
-                  <div className="mb-4 flex items-center justify-between w-full">
-                    <div className="flex items-center gap-1.5 rounded-full border bg-surface p-1 text-xs">
-                      <button
-                        onClick={() => setActiveViewMode("slider")}
-                        className={cn(
-                          "flex items-center gap-1.5 rounded-full px-3 py-1 font-medium transition-colors",
-                          activeViewMode === "slider"
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        <SlidersHorizontal className="size-3.5" />
-                        <span>Before / After</span>
-                      </button>
-
-                      <button
-                        onClick={() => {
-                          if (!rotatedViews) {
-                            handleGenerateRotateViews();
-                          } else {
-                            setActiveViewMode("rotate");
-                          }
-                        }}
-                        disabled={isGeneratingRotateViews}
-                        className={cn(
-                          "flex items-center gap-1.5 rounded-full px-3 py-1 font-medium transition-colors",
-                          activeViewMode === "rotate"
-                            ? "bg-primary text-primary-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        <Rotate3d
-                          className={cn("size-3.5", isGeneratingRotateViews && "animate-spin")}
+                  {/* Top Bar with Active Garment Indicator & Switcher */}
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-2 w-full rounded-2xl border border-border/70 bg-surface/60 p-2.5">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {activeGarmentInfo?.imageSrc && (
+                        <img
+                          src={activeGarmentInfo.imageSrc}
+                          alt=""
+                          className="size-8 shrink-0 rounded-lg object-contain bg-card border border-border/70 p-0.5"
                         />
-                        <span>
-                          {isGeneratingRotateViews
-                            ? "Generating 360°…"
-                            : rotatedViews
-                              ? "360° Rotate View"
-                              : "Rotate view"}
-                        </span>
-                      </button>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-foreground truncate max-w-[180px]">
+                          {activeGarmentInfo?.name || "Selected Look"}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">Fitted on Virtual Me</p>
+                      </div>
                     </div>
 
-                    <Button
-                      variant="quiet"
-                      size="sm"
-                      onClick={() => {
-                        setGeneratedLook(null);
-                        setRotatedViews(null);
-                        setActiveViewMode("slider");
-                      }}
-                      className="gap-1.5 text-xs"
-                    >
-                      <RefreshCw className="size-3" /> Try Another Outfit
-                    </Button>
+                    <div className="flex items-center gap-1.5">
+                      <div className="flex items-center rounded-full border bg-card p-0.5 text-xs">
+                        <button
+                          onClick={() => setActiveViewMode("slider")}
+                          className={cn(
+                            "flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            activeViewMode === "slider"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <SlidersHorizontal className="size-3" />
+                          <span>Before / After</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            if (!rotatedViews) {
+                              handleGenerateRotateViews();
+                            } else {
+                              setActiveViewMode("rotate");
+                            }
+                          }}
+                          disabled={isGeneratingRotateViews}
+                          className={cn(
+                            "flex items-center gap-1 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            activeViewMode === "rotate"
+                              ? "bg-primary text-primary-foreground shadow-xs"
+                              : "text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <Rotate3d
+                            className={cn("size-3", isGeneratingRotateViews && "animate-spin")}
+                          />
+                          <span>
+                            {isGeneratingRotateViews
+                              ? "Generating…"
+                              : rotatedViews
+                                ? "360°"
+                                : "Rotate"}
+                          </span>
+                        </button>
+                      </div>
+
+                      <Button
+                        variant="quiet"
+                        size="sm"
+                        onClick={() => {
+                          setGeneratedLook(null);
+                          setRotatedViews(null);
+                          setActiveViewMode("slider");
+                        }}
+                        className="h-7 gap-1 text-[11px] px-2 text-bronze hover:bg-bronze/10"
+                      >
+                        <RefreshCw className="size-3" /> Change Piece
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Viewport Component */}
@@ -952,28 +1115,127 @@ function VirtualTryOnPage() {
                   )}
                 </div>
               ) : (
-                /* Ready State */
-                <div className="flex aspect-[3/4] w-full max-w-lg flex-col items-center justify-center rounded-3xl border border-dashed border-border bg-surface/50 p-6 text-center">
-                  <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-secondary text-bronze">
-                    <Sparkles className="size-6" />
+                /* LIVE STAGING STUDIO STAGE (Shows Person + Selected Garment side-by-side) */
+                <div className="w-full max-w-lg flex flex-col items-center gap-4">
+                  {/* Status Banner */}
+                  <div className="w-full flex items-center justify-between rounded-2xl border border-bronze/30 bg-champagne/15 px-4 py-2.5 text-xs text-foreground">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="size-4 text-bronze" />
+                      <span className="font-medium">
+                        {activeGarmentInfo
+                          ? `Staging for Try-On: ${activeGarmentInfo.name}`
+                          : "Select a clothing piece to stage it"}
+                      </span>
+                    </div>
+                    {activeGarmentInfo && (
+                      <Badge
+                        variant="outline"
+                        className="border-bronze/40 text-bronze uppercase tracking-wider text-[10px]"
+                      >
+                        {activeGarmentInfo.category} · {activeGarmentInfo.color}
+                      </Badge>
+                    )}
                   </div>
-                  <h3 className="font-display text-lg text-foreground">
-                    Virtual Me Ready for Try-On
-                  </h3>
-                  <p className="mt-1.5 max-w-xs text-xs text-muted-foreground">
-                    {virtualTwinUri
-                      ? "Your realistic twin is ready. Click below to dress in the selected garments."
-                      : "Upload your photo above to create your Virtual Me twin, or try with our studio template."}
-                  </p>
 
+                  {/* Composed Side-by-Side Model & Garment Stage */}
+                  <div className="grid w-full grid-cols-1 sm:grid-cols-2 gap-4">
+                    {/* Left: Your Model */}
+                    <div className="relative aspect-[3/4] overflow-hidden rounded-2xl border border-border/70 bg-surface shadow-xs">
+                      <img
+                        src={virtualTwinUri || userPhotoUrl || studioModelUrl}
+                        alt="Your Persona"
+                        className="h-full w-full object-cover object-top"
+                      />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent p-3 text-center">
+                        <p className="text-xs font-semibold text-white">Your Model Persona</p>
+                        <p className="text-[10px] text-white/80">
+                          {virtualTwinUri && virtualTwinUri !== userPhotoUrl
+                            ? "Virtual Me Studio Twin"
+                            : userPhotoUrl
+                              ? "Reference Photo"
+                              : "VÉSTARA Studio Template"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: Selected Garment Stage */}
+                    <div className="relative aspect-[3/4] flex flex-col justify-between overflow-hidden rounded-2xl border-2 border-bronze/50 bg-gradient-to-b from-card via-surface/70 to-surface/90 p-3 shadow-soft transition-all duration-300">
+                      <div className="flex items-center justify-between text-xs">
+                        <Badge variant="champagne" className="gap-1 font-medium text-[11px]">
+                          <Check className="size-3 text-emerald-600" /> Active Dress
+                        </Badge>
+                        {activeGarmentInfo && (
+                          <span
+                            className="size-3.5 rounded-full border border-border shadow-xs"
+                            style={{
+                              backgroundColor: colorNameToHex(activeGarmentInfo.color) || "#ddd",
+                            }}
+                            title={`Color: ${activeGarmentInfo.color}`}
+                          />
+                        )}
+                      </div>
+
+                      {activeGarmentInfo ? (
+                        <div className="flex flex-1 flex-col items-center justify-center my-2 overflow-hidden">
+                          {activeGarmentInfo.type === "item" && activeGarmentInfo.rawItem ? (
+                            <div className="h-44 w-full max-w-[200px]">
+                              <ItemImage
+                                item={activeGarmentInfo.rawItem}
+                                signedUrls={signedGarments.data}
+                                fit="contain"
+                                className="h-full w-full border-0 bg-transparent p-1 shadow-none"
+                              />
+                            </div>
+                          ) : activeGarmentInfo.imageSrc ? (
+                            <img
+                              src={activeGarmentInfo.imageSrc}
+                              alt={activeGarmentInfo.name}
+                              className="max-h-44 max-w-full object-contain object-center drop-shadow-md"
+                            />
+                          ) : (
+                            <div className="flex flex-col items-center justify-center text-taupe py-6">
+                              <Shirt className="size-12" strokeWidth={1.2} />
+                              <p className="mt-2 text-xs">Garment loaded</p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex flex-1 flex-col items-center justify-center text-center p-4">
+                          <Shirt className="size-10 text-taupe mb-2" strokeWidth={1.2} />
+                          <p className="text-xs text-muted-foreground">
+                            Pick a piece from your wardrobe below
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Garment details footer */}
+                      <div className="rounded-xl border border-border/60 bg-card/95 p-2.5 backdrop-blur-xs">
+                        <p className="truncate text-xs font-semibold text-foreground">
+                          {activeGarmentInfo?.name || "Curated Style Piece"}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground capitalize">
+                          {activeGarmentInfo?.category || "Apparel"} ·{" "}
+                          {activeGarmentInfo?.color || "Neutral"} ·{" "}
+                          {activeGarmentInfo?.style || "Style"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Primary Action Button */}
                   <Button
                     variant="hero"
                     size="lg"
-                    className="mt-6 gap-2"
+                    className="w-full mt-2 gap-2 shadow-md hover:scale-[1.01] transition-transform"
                     disabled={tryOnMutation.isPending}
                     onClick={() => tryOnMutation.mutate()}
                   >
-                    <Wand2 className="size-4" /> Dress My Virtual Me
+                    <Wand2 className="size-4" />
+                    <span>
+                      {activeGarmentInfo
+                        ? `Dress Virtual Me in ${activeGarmentInfo.name}`
+                        : "Dress My Virtual Me"}
+                    </span>
                   </Button>
                 </div>
               )}
@@ -999,7 +1261,7 @@ function VirtualTryOnPage() {
                 </div>
               )}
 
-              {/* 6. QUALITY DISCLAIMER NOTE */}
+              {/* Quality Disclaimer Note */}
               <div className="mt-6 text-center text-[11px] text-muted-foreground">
                 Images are AI-generated previews. Fit and color may differ slightly from the real
                 garment.
@@ -1014,7 +1276,8 @@ function VirtualTryOnPage() {
                   Stylist Look Intelligence
                 </div>
                 <h4 className="mt-2 font-display text-lg text-foreground">
-                  {generatedLook?.styling?.outfit_name || "Curated Ensemble"}
+                  {generatedLook?.styling?.outfit_name ||
+                    (activeGarmentInfo ? activeGarmentInfo.name : "Curated Ensemble")}
                 </h4>
                 <p className="mt-2 text-xs leading-relaxed text-foreground/85">
                   {generatedLook?.styling?.styling_reason ||
@@ -1126,6 +1389,7 @@ function QualityItem({ label, passed }: { label: string; passed: boolean }) {
 function colorNameToHex(name?: string | null): string | undefined {
   if (!name) return undefined;
   const n = name.toLowerCase().trim();
+  if (n.startsWith("#")) return n;
   const map: Record<string, string> = {
     white: "#FFFFFF",
     cream: "#ECE4D8",
@@ -1145,6 +1409,11 @@ function colorNameToHex(name?: string | null): string | undefined {
     burgundy: "#5C1D24",
     olive: "#5C6A53",
     green: "#293D31",
+    red: "#9B111E",
+    pink: "#E8A598",
+    yellow: "#D4AF37",
+    orange: "#C46210",
+    purple: "#582F60",
   };
   return map[n] ?? "#3A3D40";
 }
