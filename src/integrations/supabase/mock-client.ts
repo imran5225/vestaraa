@@ -37,6 +37,7 @@ export interface MockStore {
   messages: MockRow[];
   ai_usage: MockRow[];
   virtual_models: MockRow[];
+  tryon_looks: MockRow[];
 }
 
 function initStore(): MockStore {
@@ -97,6 +98,7 @@ function initStore(): MockStore {
     messages: [],
     ai_usage: [],
     virtual_models: [],
+    tryon_looks: [],
   };
 }
 
@@ -390,7 +392,7 @@ export function createMockSupabaseClient(activeUserId = DEMO_USER_ID): SupabaseC
     from: (table: string) => new MockQueryBuilder(table),
     storage: {
       from: (_bucket: string) => ({
-        download: async (_path: string) => {
+        download: async (path: string) => {
           return { data: new Blob(["mock"], { type: "image/jpeg" }), error: null };
         },
         upload: async (path: string, _file: unknown) => {
@@ -398,17 +400,26 @@ export function createMockSupabaseClient(activeUserId = DEMO_USER_ID): SupabaseC
         },
         createSignedUrl: async (path: string, _expires: number) => {
           const stripped = path.replace(/^.*\//, "");
+          const url = path.includes("model")
+            ? "/src/assets/studio-model.jpg"
+            : `/src/assets/sample/${stripped}.jpg`;
           return {
-            data: { signedUrl: `/src/assets/sample/${stripped}.jpg` },
+            data: { signedUrl: url },
             error: null,
           };
         },
         createSignedUrls: async (paths: string[], _expires: number) => {
           return {
-            data: paths.map((p) => ({
-              path: p,
-              signedUrl: `/src/assets/sample/${p.replace(/^.*\//, "")}.jpg`,
-            })),
+            data: paths.map((p) => {
+              const stripped = p.replace(/^.*\//, "");
+              const url = p.includes("model")
+                ? "/src/assets/studio-model.jpg"
+                : `/src/assets/sample/${stripped}.jpg`;
+              return {
+                path: p,
+                signedUrl: url,
+              };
+            }),
             error: null,
           };
         },

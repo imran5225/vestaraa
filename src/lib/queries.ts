@@ -5,14 +5,32 @@ import type { Slot, WardrobeItem } from "@/lib/domain";
 
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
-export async function currentUserId() {
-  const storedToken =
-    typeof window !== "undefined" ? localStorage.getItem("vestara_session_token") : null;
-  if (storedToken?.startsWith("mock-token-")) {
-    return storedToken.replace("mock-token-", "");
+export async function currentUserId(): Promise<string> {
+  if (typeof window !== "undefined") {
+    const storedToken = localStorage.getItem("vestara_session_token");
+    if (storedToken?.startsWith("mock-token-")) {
+      return storedToken.replace("mock-token-", "") || DEMO_USER_ID;
+    }
+    if (storedToken && storedToken.split(".").length === 3) {
+      try {
+        const payload = JSON.parse(atob(storedToken.split(".")[1]));
+        if (payload?.sub) return payload.sub;
+      } catch {
+        // ignore
+      }
+    }
+    if (localStorage.getItem("vestara_demo_user") === "true") {
+      return DEMO_USER_ID;
+    }
   }
-  const { data } = await supabase.auth.getUser().catch(() => ({ data: null }));
-  if (data?.user) return data.user.id;
+
+  try {
+    const { data } = await supabase.auth.getUser().catch(() => ({ data: null }));
+    if (data?.user?.id) return data.user.id;
+  } catch {
+    // offline or custom session
+  }
+
   return DEMO_USER_ID;
 }
 

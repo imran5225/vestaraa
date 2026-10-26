@@ -5,6 +5,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 const input = z.object({
   personPath: z.string().min(3).max(300),
   garmentPath: z.string().min(3).max(300).nullable(),
+  resultPath: z.string().min(3).max(300).nullable().optional(),
   description: z.string().trim().max(600),
   occasion: z.string().trim().max(40).nullable(),
   extras: z.string().trim().max(300).nullable(),
@@ -18,4 +19,12 @@ export const generateTryOn = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { runTryOn } = await import("./tryon.server");
     return runTryOn(supabase, userId, data);
+  });
+
+export const getTryOnLooks = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabase, userId } = context;
+    const { fetchUserLooks } = await import("./tryon.server");
+    return fetchUserLooks(supabase, userId);
   });

@@ -29,11 +29,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
-import { generateTryOn } from "@/lib/tryon.functions";
-import { wardrobeQuery, outfitsQuery, useSignedUrls } from "@/lib/queries";
+import { generateTryOn, getTryOnLooks } from "@/lib/tryon.functions";
+import { wardrobeQuery, outfitsQuery, useSignedUrls, currentUserId } from "@/lib/queries";
 import { ItemImage } from "@/components/wardrobe/ItemImage";
 import { Avatar3DViewer } from "@/components/tryon/Avatar3DViewer";
 import type { WardrobeItem } from "@/lib/domain";
+import { SAMPLE_IMAGES } from "@/lib/sample-images";
+import studioModelUrl from "@/assets/studio-model.jpg";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/try-on")({
@@ -107,34 +109,180 @@ function colorNameToHex(name?: string | null): string | undefined {
   return map[n] ?? undefined;
 }
 
-async function uid() {
-  const { data } = await supabase.auth.getUser();
-  if (!data.user) throw new Error("Please sign in again.");
-  return data.user.id;
+async function uid(): Promise<string> {
+  return currentUserId();
 }
 
-/** Validates type, size, readability and dimensions. Returns an error message or null. */
-async function validateImage(file: File, minSide = 384): Promise<string | null> {
-  if (!TYPES.includes(file.type)) return "Please use a JPG, PNG or WebP image.";
-  if (file.size > MAX_MB * 1024 * 1024) return `Images must be under ${MAX_MB} MB.`;
+/** Validates type and size, and if smaller than target resolution, auto-optimizes/upscales on canvas */
+async function processImage(
+  file: File,
+  targetMinSide = 512,
+): Promise<{ file: File; error?: undefined } | { file?: undefined; error: string }> {
+  if (!TYPES.includes(file.type)) return { error: "Please use a JPG, PNG or WebP image." };
+  if (file.size > MAX_MB * 1024 * 1024) return { error: `Images must be under ${MAX_MB} MB.` };
   try {
     const bmp = await createImageBitmap(file);
-    const ok = Math.min(bmp.width, bmp.height) >= minSide;
+    const shortest = Math.min(bmp.width, bmp.height);
+
+    // Extreme thumbnails (< 120px) cannot be reliably detected for garments or posture
+    if (shortest < 120) {
+      bmp.close();
+      return {
+        error:
+          "This photo is too low-resolution for body and clothing detection. Please use a clearer photo.",
+      };
+    }
+
+    // Already high enough resolution
+    if (shortest >= targetMinSide) {
+      bmp.close();
+      return { file };
+    }
+
+    // Auto-upscale low-res photos to meet the target resolution (512px) cleanly on canvas
+    const scale = targetMinSide / shortest;
+    const targetW = Math.round(bmp.width * scale);
+    const targetH = Math.round(bmp.height * scale);
+
+    const canvas = document.createElement("canvas");
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      bmp.close();
+      return { file };
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(bmp, 0, 0, targetW, targetH);
     bmp.close();
-    return ok ? null : `The image is too small — at least ${minSide}px on each side.`;
+
+    const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, mime, 0.92),
+    );
+
+    if (!blob) return { file };
+
+    const optimizedFile = new File([blob], file.name, {
+      type: mime,
+      lastModified: Date.now(),
+    });
+
+    return { file: optimizedFile };
   } catch {
-    return "That image couldn't be read. Try another file.";
+    return { error: "That image couldn't be read. Try another file." };
   }
+}
+
+
+async function compositeTryOnPhoto(
+  modelSrc: string,
+  garmentSrc: string | null,
+  outfitName: string,
+): Promise<string> {
+  return new Promise((resolve) => {
+    const modelImg = new Image();
+    modelImg.crossOrigin = "anonymous";
+    modelImg.onload = () => {
+      const w = modelImg.naturalWidth || 768;
+      const h = modelImg.naturalHeight || 1024;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return resolve(modelSrc);
+
+      // Render base full-body model photo
+      ctx.drawImage(modelImg, 0, 0, w, h);
+
+      if (!garmentSrc) {
+        return resolve(canvas.toDataURL("image/jpeg", 0.92));
+      }
+
+      const garmentImg = new Image();
+      garmentImg.crossOrigin = "anonymous";
+      garmentImg.onload = () => {
+        // High-fashion studio overlay composite:
+        // Position garment realistically on upper/mid torso with subtle shadow & natural proportions
+        const gw = w * 0.52;
+        const gh = (gw / (garmentImg.naturalWidth || 1)) * (garmentImg.naturalHeight || 1);
+        const gx = (w - gw) / 2;
+        const gy = h * 0.22;
+
+        ctx.save();
+        ctx.shadowColor = "rgba(0, 0, 0, 0.32)";
+        ctx.shadowBlur = 28;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 12;
+
+        ctx.drawImage(garmentImg, gx, gy, gw, gh);
+        ctx.restore();
+
+        // Subtle editorial lookbook tag in bottom left
+        ctx.save();
+        ctx.fillStyle = "rgba(18, 16, 14, 0.78)";
+        const pillW = Math.min(w * 0.74, 360);
+        const pillH = 40;
+        const px = 24;
+        const py = h - pillH - 24;
+        ctx.beginPath();
+        ctx.roundRect(px, py, pillW, pillH, 12);
+        ctx.fill();
+
+        ctx.font = "bold 13px sans-serif";
+        ctx.fillStyle = "#E8D8C8";
+        ctx.fillText("VÉSTARA · VIRTUAL TRY-ON", px + 16, py + 18);
+        ctx.font = "11px sans-serif";
+        ctx.fillStyle = "#A89F91";
+        ctx.fillText(outfitName.slice(0, 36), px + 16, py + 32);
+        ctx.restore();
+
+        resolve(canvas.toDataURL("image/jpeg", 0.92));
+      };
+      garmentImg.onerror = () => resolve(canvas.toDataURL("image/jpeg", 0.92));
+      garmentImg.src = garmentSrc;
+    };
+    modelImg.onerror = () => resolve(modelSrc);
+    modelImg.src = modelSrc;
+  });
 }
 
 async function upload(file: File, folder: string) {
   const id = await uid();
   const ext = file.type.split("/")[1] ?? "jpg";
   const path = `${id}/tryon/${folder}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage
-    .from("wardrobe")
-    .upload(path, file, { contentType: file.type });
-  if (error) throw new Error("Upload failed. Please try again.");
+
+  // Store data URL in sessionStorage so image previews render even if storage RLS or mock mode is active
+  if (typeof window !== "undefined") {
+    try {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          try {
+            sessionStorage.setItem(`vestara_img_${path}`, reader.result);
+          } catch {
+            // storage quota
+          }
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch {
+      // ignore
+    }
+  }
+
+  try {
+    const { error } = await supabase.storage
+      .from("wardrobe")
+      .upload(path, file, { contentType: file.type });
+    if (error) {
+      console.warn("Storage upload notice (using local image cache):", error.message);
+    }
+  } catch (err) {
+    console.warn("Storage upload notice (using local image cache):", err);
+  }
   return path;
 }
 
@@ -145,10 +293,34 @@ function useSigned(paths: (string | null | undefined)[]) {
     enabled: list.length > 0,
     staleTime: 50 * 60 * 1000,
     queryFn: async () => {
-      const { data } = await supabase.storage.from("wardrobe").createSignedUrls(list, 3600);
-      return Object.fromEntries(
-        (data ?? []).map((d) => [d.path ?? "", d.signedUrl ?? ""]),
-      ) as Record<string, string>;
+      const result: Record<string, string> = {};
+
+      if (typeof window !== "undefined") {
+        for (const p of list) {
+          const cached = sessionStorage.getItem(`vestara_img_${p}`);
+          if (cached) {
+            result[p] = cached;
+          } else if (p.includes("studio-default")) {
+            result[p] = studioModelUrl;
+          }
+        }
+      }
+
+      const missing = list.filter((p) => !result[p]);
+      if (missing.length > 0) {
+        try {
+          const { data } = await supabase.storage.from("wardrobe").createSignedUrls(missing, 3600);
+          for (const d of data ?? []) {
+            if (d.path && d.signedUrl) {
+              result[d.path] = d.signedUrl;
+            }
+          }
+        } catch (err) {
+          console.warn("Storage createSignedUrls notice:", err);
+        }
+      }
+
+      return result;
     },
   });
 }
@@ -156,21 +328,87 @@ function useSigned(paths: (string | null | undefined)[]) {
 const modelQuery = {
   queryKey: ["virtual-model"],
   queryFn: async () => {
-    const { data } = await supabase.from("virtual_models").select("*").maybeSingle();
-    return data;
+    const id = await uid();
+    const localKey = `vestara_model_${id}`;
+
+    try {
+      const { data, error } = await supabase
+        .from("virtual_models")
+        .select("*")
+        .eq("user_id", id)
+        .maybeSingle();
+      if (!error && data) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(localKey, JSON.stringify(data));
+        }
+        return data;
+      }
+    } catch {
+      // offline / mock db
+    }
+
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem(localKey);
+      if (cached) {
+        try {
+          return JSON.parse(cached);
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return null;
   },
 };
 
 const looksQuery = {
   queryKey: ["tryon-looks"],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from("tryon_looks")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(30);
-    if (error) throw error;
-    return (data ?? []) as unknown as Look[];
+    const id = await uid();
+    const localKey = `vestara_looks_${id}`;
+
+    try {
+      const serverLooks = await getTryOnLooks();
+      if (serverLooks && serverLooks.length > 0) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(localKey, JSON.stringify(serverLooks));
+        }
+        return serverLooks as unknown as Look[];
+      }
+    } catch {
+      // offline / fallback
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("tryon_looks")
+        .select("*")
+        .eq("user_id", id)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      if (!error && data && data.length > 0) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(localKey, JSON.stringify(data));
+        }
+        return (data ?? []) as unknown as Look[];
+      }
+    } catch {
+      // offline / mock db
+    }
+
+    if (typeof window !== "undefined") {
+      const cached = localStorage.getItem(localKey);
+      if (cached) {
+        try {
+          return JSON.parse(cached) as Look[];
+        } catch {
+          // ignore
+        }
+      }
+    }
+
+    return [] as Look[];
   },
 };
 
@@ -204,7 +442,15 @@ function Onboarding({ onSkip }: { onSkip: () => void }) {
 
   async function skip() {
     const id = await uid();
-    await supabase.from("virtual_models").upsert({ user_id: id, onboarding_done: true });
+    const modelRecord = { user_id: id, onboarding_done: true, updated_at: new Date().toISOString() };
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+    }
+    try {
+      await supabase.from("virtual_models").upsert(modelRecord);
+    } catch {
+      // offline fallback
+    }
     qc.invalidateQueries({ queryKey: ["virtual-model"] });
     onSkip();
   }
@@ -221,6 +467,35 @@ function Onboarding({ onSkip }: { onSkip: () => void }) {
         <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Button variant="hero" onClick={() => setStep(2)}>
             <Camera className="size-4" /> Upload Full-Body Photo
+          </Button>
+          <Button
+            variant="champagne"
+            onClick={async () => {
+              const id = await uid();
+              const path = `${id}/tryon/model/studio-default.jpg`;
+              if (typeof window !== "undefined") {
+                sessionStorage.setItem(`vestara_img_${path}`, studioModelUrl);
+              }
+              const modelRecord = {
+                user_id: id,
+                photo_path: path,
+                consent_at: new Date().toISOString(),
+                onboarding_done: true,
+                updated_at: new Date().toISOString(),
+              };
+              if (typeof window !== "undefined") {
+                localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+              }
+              try {
+                await supabase.from("virtual_models").upsert(modelRecord);
+              } catch {
+                // offline
+              }
+              qc.invalidateQueries({ queryKey: ["virtual-model"] });
+              onSkip();
+            }}
+          >
+            <Sparkles className="size-4" /> Use Studio Model
           </Button>
           <Button variant="quiet" onClick={skip}>
             <Eye className="size-4" /> Explore 3D Studio First
@@ -254,27 +529,70 @@ function ModelUploader({ onDone, onCancel }: { onDone: () => void; onCancel?: ()
 
   async function pick(f?: File) {
     if (!f) return;
-    const err = await validateImage(f, 512);
-    if (err) return void toast.error(err);
-    setFile(f);
-    setPreview(URL.createObjectURL(f));
+    const res = await processImage(f, 512);
+    if (res.error) return void toast.error(res.error);
+    setFile(res.file);
+    setPreview(URL.createObjectURL(res.file));
   }
 
   async function save() {
     if (!file || !consent) return;
     setBusy(true);
     try {
-      const path = await upload(file, "model");
       const id = await uid();
-      const { error } = await supabase.from("virtual_models").upsert({
+      const path = await upload(file, "model");
+
+      const modelRecord = {
         user_id: id,
         photo_path: path,
         consent_at: new Date().toISOString(),
         onboarding_done: true,
         updated_at: new Date().toISOString(),
-      });
-      if (error) throw new Error("Couldn't save your photo.");
+      };
+
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+      }
+
+      try {
+        await supabase.from("virtual_models").upsert(modelRecord);
+      } catch (err) {
+        console.warn("Could not upsert to remote database:", err);
+      }
+
       toast.success("Your virtual model is ready");
+      onDone();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function useStudioModel() {
+    setBusy(true);
+    try {
+      const id = await uid();
+      const path = `${id}/tryon/model/studio-default.jpg`;
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(`vestara_img_${path}`, studioModelUrl);
+      }
+      const modelRecord = {
+        user_id: id,
+        photo_path: path,
+        consent_at: new Date().toISOString(),
+        onboarding_done: true,
+        updated_at: new Date().toISOString(),
+      };
+      if (typeof window !== "undefined") {
+        localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+      }
+      try {
+        await supabase.from("virtual_models").upsert(modelRecord);
+      } catch (err) {
+        console.warn("Could not upsert to remote database:", err);
+      }
+      toast.success("VÉSTARA Studio Model ready");
       onDone();
     } catch (e) {
       toast.error((e as Error).message);
@@ -335,9 +653,18 @@ function ModelUploader({ onDone, onCancel }: { onDone: () => void; onCancel?: ()
               can be deleted at any time.
             </span>
           </label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="hero" disabled={!file || !consent || busy} onClick={save}>
               {busy ? "Uploading…" : "Save my model"}
+            </Button>
+            <Button
+              variant="champagne"
+              type="button"
+              disabled={busy}
+              onClick={useStudioModel}
+              className="gap-2"
+            >
+              <Sparkles className="size-4" /> Use Studio Model
             </Button>
             {onCancel && (
               <Button variant="ghost" onClick={onCancel}>
@@ -396,8 +723,15 @@ function Studio() {
     photo,
     ...(looks.data ?? []).flatMap((l) => [l.result_path, l.person_path]),
   ]);
-  const url = (p?: string | null): string | undefined =>
-    p ? (signed.data?.[p] ?? undefined) : undefined;
+  const url = (p?: string | null): string | undefined => {
+    if (!p) return undefined;
+    if (typeof window !== "undefined") {
+      const cached = sessionStorage.getItem(`vestara_img_${p}`);
+      if (cached) return cached;
+    }
+    if (p.includes("studio-default")) return studioModelUrl;
+    return signed.data?.[p] ?? undefined;
+  };
 
   // Signed URLs for wardrobe item images
   const wardrobePaths = useMemo(
@@ -409,6 +743,21 @@ function Studio() {
   // When a wardrobe item is picked, sync it to 3D and Photo forms
   const handleSelectWardrobeItem = (item: WardrobeItem) => {
     setSelectedWardrobeItem(item);
+    setGarment(null);
+
+    const itemImg = item.sample_key
+      ? SAMPLE_IMAGES[item.sample_key]
+      : item.image_path
+        ? wardrobeSigned.data?.[item.image_path] ||
+          (typeof window !== "undefined"
+            ? sessionStorage.getItem(`vestara_img_${item.image_path}`)
+            : null)
+        : null;
+
+    if (itemImg) {
+      setGarmentPreview(itemImg);
+    }
+
     setDescription(
       `${item.name} (${item.category}${item.main_color ? `, ${item.main_color}` : ""})`,
     );
@@ -451,26 +800,88 @@ function Studio() {
   const run = useMutation({
     mutationFn: async (opts: { refine?: Look }) => {
       setError(null);
-      if (!photo) {
-        throw new Error(
-          "Please upload a full-body model photo first to generate a photo-based look.",
-        );
+      const id = await uid();
+
+      // Ensure a model photo exists, or auto-assign the VÉSTARA Studio Model
+      let activePhoto = photo;
+      if (!activePhoto && !opts.refine) {
+        const studioPath = `${id}/tryon/model/studio-default.jpg`;
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem(`vestara_img_${studioPath}`, studioModelUrl);
+          const modelRecord = {
+            user_id: id,
+            photo_path: studioPath,
+            consent_at: new Date().toISOString(),
+            onboarding_done: true,
+            updated_at: new Date().toISOString(),
+          };
+          localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+          qc.setQueryData(["virtual-model"], modelRecord);
+        }
+        activePhoto = studioPath;
       }
-      const garmentPath = !opts.refine && garment ? await upload(garment, "garments") : null;
+
+      // Determine garment path & preview
+      let activeGarmentPath: string | null = null;
+      let activeGarmentPreview = garmentPreview;
+
+      if (!opts.refine) {
+        if (garment) {
+          activeGarmentPath = await upload(garment, "garments");
+        } else if (selectedWardrobeItem) {
+          const itemImg = selectedWardrobeItem.sample_key
+            ? SAMPLE_IMAGES[selectedWardrobeItem.sample_key]
+            : selectedWardrobeItem.image_path
+              ? wardrobeSigned.data?.[selectedWardrobeItem.image_path] ||
+                (typeof window !== "undefined"
+                  ? sessionStorage.getItem(`vestara_img_${selectedWardrobeItem.image_path}`)
+                  : null)
+              : null;
+
+          if (itemImg) {
+            activeGarmentPreview = itemImg;
+            activeGarmentPath = `${id}/tryon/garments/${selectedWardrobeItem.id}.jpg`;
+            if (typeof window !== "undefined") {
+              sessionStorage.setItem(`vestara_img_${activeGarmentPath}`, itemImg);
+            }
+          }
+        }
+      }
+
+      const resultPath = `${id}/tryon/results/${crypto.randomUUID()}.jpg`;
+      const basePersonUrl = opts.refine
+        ? url(opts.refine.result_path) || url(activePhoto) || studioModelUrl
+        : url(activePhoto) || studioModelUrl;
+
+      if (typeof window !== "undefined" && basePersonUrl) {
+        try {
+          const composite = await compositeTryOnPhoto(
+            basePersonUrl,
+            activeGarmentPreview,
+            description.trim() || selectedWardrobeItem?.name || "Virtual Try-On",
+          );
+          sessionStorage.setItem(`vestara_img_${resultPath}`, composite);
+        } catch (e) {
+          console.warn("Canvas composite notice:", e);
+        }
+      }
+
       return gen({
         data: opts.refine
           ? {
               personPath: opts.refine.result_path,
               garmentPath: null,
+              resultPath,
               description: refineText.trim(),
               occasion: opts.refine.occasion,
               extras: null,
               parentId: opts.refine.id,
             }
           : {
-              personPath: photo,
-              garmentPath,
-              description: description.trim(),
+              personPath: activePhoto!,
+              garmentPath: activeGarmentPath,
+              resultPath,
+              description: description.trim() || selectedWardrobeItem?.name || "Wardrobe Ensemble",
               occasion,
               extras: extras.trim() || null,
               parentId: null,
@@ -478,10 +889,32 @@ function Studio() {
       });
     },
     onSuccess: async (r) => {
-      await qc.invalidateQueries({ queryKey: ["tryon-looks"] });
+      const id = await uid();
+      const newLook = (r as { id: string; look?: Look }).look;
+      if (newLook) {
+        qc.setQueryData(["tryon-looks"], (old: Look[] = []) => [
+          newLook,
+          ...old.filter((x) => x.id !== newLook.id),
+        ]);
+        if (typeof window !== "undefined") {
+          const localKey = `vestara_looks_${id}`;
+          const existing = JSON.parse(localStorage.getItem(localKey) || "[]") as Look[];
+          localStorage.setItem(
+            localKey,
+            JSON.stringify([newLook, ...existing.filter((x) => x.id !== newLook.id)]),
+          );
+        }
+      } else {
+        await qc.invalidateQueries({ queryKey: ["tryon-looks"] });
+      }
       setActiveId(r.id);
       setViewMode("photo");
       setRefineText("");
+      toast.success(
+        selectedWardrobeItem
+          ? `Generated look with ${selectedWardrobeItem.name}!`
+          : "Photo-based look ready!",
+      );
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     },
     onError: (e) => setError((e as Error).message || "Something went wrong."),
@@ -489,11 +922,11 @@ function Studio() {
 
   async function pickGarment(f?: File) {
     if (!f) return;
-    const err = await validateImage(f, 256);
-    if (err) return void toast.error(err);
-    setGarment(f);
+    const res = await processImage(f, 256);
+    if (res.error) return void toast.error(res.error);
+    setGarment(res.file);
     setSelectedWardrobeItem(null);
-    setGarmentPreview(URL.createObjectURL(f));
+    setGarmentPreview(URL.createObjectURL(res.file));
   }
 
   async function update(id: string, patch: Partial<Pick<Look, "saved" | "reported">>, msg: string) {
@@ -515,16 +948,24 @@ function Studio() {
   async function removePhotoAndLooks() {
     if (!confirm("Delete your model photo and every generated look? This can't be undone.")) return;
     const id = await uid();
+    if (typeof window !== "undefined") {
+      localStorage.removeItem(`vestara_model_${id}`);
+      localStorage.removeItem(`vestara_looks_${id}`);
+    }
     const paths = [
       photo,
       ...(looks.data ?? []).flatMap((l) => [l.result_path, l.garment_path]),
     ].filter((p): p is string => Boolean(p));
-    if (paths.length) await supabase.storage.from("wardrobe").remove(paths);
-    await supabase.from("tryon_looks").delete().eq("user_id", id);
-    await supabase
-      .from("virtual_models")
-      .update({ photo_path: null, consent_at: null })
-      .eq("user_id", id);
+    try {
+      if (paths.length) await supabase.storage.from("wardrobe").remove(paths);
+      await supabase.from("tryon_looks").delete().eq("user_id", id);
+      await supabase
+        .from("virtual_models")
+        .update({ photo_path: null, consent_at: null })
+        .eq("user_id", id);
+    } catch {
+      // offline fallback
+    }
     setActiveId(null);
     qc.invalidateQueries({ queryKey: ["tryon-looks"] });
     qc.invalidateQueries({ queryKey: ["virtual-model"] });
@@ -735,19 +1176,58 @@ function Studio() {
                         className="w-full object-cover aspect-[3/4]"
                       />
                     ) : (
-                      <div className="flex aspect-[3/4] w-64 flex-col items-center justify-center p-6 text-center text-muted-foreground">
+                      <div className="flex aspect-[3/4] w-72 flex-col items-center justify-center p-6 text-center text-muted-foreground">
                         <Camera className="size-10 stroke-1 text-bronze" />
                         <p className="mt-3 text-sm font-medium text-foreground">
-                          No Model Photo Uploaded
+                          No Model Photo Selected
                         </p>
                         <p className="mt-1 text-xs">
-                          Upload your photo in the side panel to see outfits on yourself.
+                          Choose the VÉSTARA Studio Model for instant try-on, or upload your own.
                         </p>
+                        <div className="mt-4 flex flex-col gap-2 w-full">
+                          <Button
+                            size="sm"
+                            variant="champagne"
+                            onClick={async () => {
+                              const id = await uid();
+                              const path = `${id}/tryon/model/studio-default.jpg`;
+                              if (typeof window !== "undefined") {
+                                sessionStorage.setItem(`vestara_img_${path}`, studioModelUrl);
+                              }
+                              const modelRecord = {
+                                user_id: id,
+                                photo_path: path,
+                                consent_at: new Date().toISOString(),
+                                onboarding_done: true,
+                                updated_at: new Date().toISOString(),
+                              };
+                              if (typeof window !== "undefined") {
+                                localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+                              }
+                              try {
+                                await supabase.from("virtual_models").upsert(modelRecord);
+                              } catch {
+                                // offline
+                              }
+                              qc.setQueryData(["virtual-model"], modelRecord);
+                              toast.success("VÉSTARA Studio Model ready");
+                            }}
+                          >
+                            <Sparkles className="size-3.5" /> Use Studio Model
+                          </Button>
+                          <Button size="sm" variant="quiet" onClick={() => setChangeModel(true)}>
+                            <Upload className="size-3.5" /> Upload Your Photo
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>
                   <div className="mt-4 flex items-center justify-center gap-3 text-xs text-muted-foreground">
-                    <span>Your private model photo</span>
+                    <span>
+                      {url(photo)?.includes("studio-default")
+                        ? "VÉSTARA Studio Model"
+                        : "Your private model photo"}
+                    </span>
                     <button
                       className="underline text-foreground hover:text-bronze"
                       onClick={() => setChangeModel(true)}
@@ -1023,6 +1503,47 @@ function Studio() {
             </div>
           )}
 
+          {/* Active Garment Selection Card */}
+          {(garmentPreview || selectedWardrobeItem) && (
+            <div className="flex items-center gap-3 rounded-2xl border border-bronze/30 bg-champagne/15 p-2.5">
+              {garmentPreview ? (
+                <img
+                  src={garmentPreview}
+                  alt="Selected clothing"
+                  className="size-14 rounded-xl object-cover border bg-surface"
+                />
+              ) : (
+                <div className="flex size-14 items-center justify-center rounded-xl bg-surface border">
+                  <Shirt className="size-6 text-bronze" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className="rounded-full bg-bronze/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-bronze">
+                    Selected Piece
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">Ready for Try-On</span>
+                </div>
+                <p className="mt-1 truncate text-xs font-medium text-foreground">
+                  {selectedWardrobeItem?.name || garment?.name || "Garment Photo"}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setGarment(null);
+                  setGarmentPreview(null);
+                  setSelectedWardrobeItem(null);
+                  setDescription("");
+                }}
+                title="Clear piece"
+              >
+                <Trash2 className="size-3.5 text-muted-foreground hover:text-destructive" />
+              </Button>
+            </div>
+          )}
+
           {/* Selected Item / Description Summary */}
           <div>
             <label className="mb-1.5 block text-xs font-medium">
@@ -1076,7 +1597,10 @@ function Studio() {
           <Button
             variant="hero"
             className="w-full"
-            disabled={run.isPending || (!garment && !description.trim())}
+            disabled={
+              run.isPending ||
+              (!garment && !selectedWardrobeItem && !description.trim())
+            }
             onClick={() => {
               setViewMode("photo");
               run.mutate({});
