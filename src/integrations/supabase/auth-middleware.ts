@@ -4,6 +4,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 import { createMockSupabaseClient, DEMO_USER_ID } from "./mock-client";
+import { getSupabaseCredentials } from "./client";
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
@@ -34,14 +35,7 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
-    const SUPABASE_URL =
-      process.env["VITE_SUPABASE_URL"] ||
-      process.env["SUPABASE_URL"] ||
-      "https://yvjdsbrioaycwcflfvts.supabase.co";
-    const SUPABASE_PUBLISHABLE_KEY =
-      process.env["VITE_SUPABASE_ANON_KEY"] ||
-      process.env["SUPABASE_PUBLISHABLE_KEY"] ||
-      process.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
+    const { url: SUPABASE_URL, key: SUPABASE_PUBLISHABLE_KEY } = getSupabaseCredentials();
 
     const request = getRequest();
     const authHeader = request?.headers?.get("authorization");

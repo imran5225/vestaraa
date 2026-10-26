@@ -53,26 +53,48 @@ function createSupabaseFetch(supabaseUrl: string, supabaseKey: string): typeof f
   };
 }
 
-function createSupabaseClient() {
+export function getSupabaseCredentials(): { url: string; key: string } {
   const meta = typeof import.meta !== "undefined" ? import.meta : undefined;
   const env = meta?.env || {};
   const proc = typeof process !== "undefined" ? process.env : {};
 
-  const SUPABASE_URL =
+  const url =
     proc["VITE_SUPABASE_URL"] ||
     import.meta.env.VITE_SUPABASE_URL ||
     env.VITE_SUPABASE_URL ||
     proc["SUPABASE_URL"] ||
-    "https://yvjdsbrioaycwcflfvts.supabase.co";
+    "https://eabhetaqbvevterxxlvm.supabase.co";
 
-  const SUPABASE_PUBLISHABLE_KEY =
-    proc["VITE_SUPABASE_ANON_KEY"] ||
-    import.meta.env.VITE_SUPABASE_ANON_KEY ||
-    env.VITE_SUPABASE_ANON_KEY ||
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-    proc["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
-    proc["SUPABASE_PUBLISHABLE_KEY"] ||
-    "mock-anon-key";
+  let key = "";
+  if (url.includes("eabhetaqbvevterxxlvm")) {
+    key =
+      proc["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      proc["SUPABASE_PUBLISHABLE_KEY"] ||
+      env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      "";
+  } else if (url.includes("yvjdsbrioaycwcflfvts")) {
+    key =
+      proc["VITE_SUPABASE_ANON_KEY"] ||
+      import.meta.env.VITE_SUPABASE_ANON_KEY ||
+      proc["SUPABASE_ANON_KEY"] ||
+      env.VITE_SUPABASE_ANON_KEY ||
+      "";
+  } else {
+    key =
+      proc["VITE_SUPABASE_PUBLISHABLE_KEY"] ||
+      import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+      proc["VITE_SUPABASE_ANON_KEY"] ||
+      import.meta.env.VITE_SUPABASE_ANON_KEY ||
+      proc["SUPABASE_PUBLISHABLE_KEY"] ||
+      "mock-anon-key";
+  }
+
+  return { url, key: key || "mock-anon-key" };
+}
+
+function createSupabaseClient() {
+  const { url: SUPABASE_URL, key: SUPABASE_PUBLISHABLE_KEY } = getSupabaseCredentials();
 
   return createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
     global: {

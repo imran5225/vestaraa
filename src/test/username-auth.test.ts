@@ -20,8 +20,8 @@ describe("Username-and-Password Authentication System", () => {
     });
 
     it("generates an internal synthetic auth email identifier", () => {
-      expect(usernameToInternalEmail("alex_smith")).toBe("alex_smith@auth.vestara.internal");
-      expect(usernameToInternalEmail("  MARCUS  ")).toBe("marcus@auth.vestara.internal");
+      expect(usernameToInternalEmail("alex_smith")).toBe("alex_smith@vestara.net");
+      expect(usernameToInternalEmail("  MARCUS  ")).toBe("marcus@vestara.net");
     });
   });
 
