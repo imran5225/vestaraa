@@ -123,4 +123,14 @@ export const SAMPLE_WARDROBE: SampleItem[] = [
     fit: "regular",
     seasons: [],
   },
+  {
+    sample_key: "black-dress",
+    name: "Classic black midi dress",
+    category: "top",
+    main_color: "black",
+    pattern: "solid",
+    style: "formal",
+    fit: "tailored",
+    seasons: ["spring", "summer", "autumn", "winter"],
+  },
 ];

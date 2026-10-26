@@ -164,8 +164,8 @@ function VirtualTryOnPage() {
   const [isGeneratingRotateViews, setIsGeneratingRotateViews] = useState(false);
   const [rotateError, setRotateError] = useState<string | null>(null);
 
-  // Cached generated looks to avoid re-running when switching tabs
-  const cachedLooksRef = useRef<Map<string, TryOnLookRecord>>(new Map());
+  // Request token ref to cancel / ignore stale responses and prevent race conditions
+  const tryOnRequestIdRef = useRef(0);
 
   // Load cached photo and virtual twin from localStorage on mount
   useEffect(() => {
@@ -350,7 +350,7 @@ function VirtualTryOnPage() {
     return "Curated style ensemble";
   }, [customDescription, activeOutfit, selectedWardrobeItem]);
 
-  // Handler to select an individual wardrobe item
+  // Handler to select an individual wardrobe piece and immediately fit it
   const handleSelectWardrobeItem = (item: WardrobeItem) => {
     setSelectedWardrobeItem(item);
     setSelectedOutfitId(null);
@@ -359,10 +359,11 @@ function VirtualTryOnPage() {
     setRotatedViews(null);
     setActiveViewMode("slider");
     setTryOnError(null);
-    toast.info(`Selected ${item.name} for try-on.`);
+    toast.info(`Fitting ${item.name} on your Virtual Me…`);
+    tryOnMutation.mutate({ garmentItem: item, outfitId: null });
   };
 
-  // Handler to select a stylist outfit
+  // Handler to select a stylist outfit and immediately fit it
   const handleSelectOutfit = (outfitId: string) => {
     setSelectedOutfitId(outfitId);
     setSelectedWardrobeItem(null);
@@ -372,9 +373,8 @@ function VirtualTryOnPage() {
     setActiveViewMode("slider");
     setTryOnError(null);
     const found = outfits.data?.find((o) => o.id === outfitId);
-    if (found) {
-      toast.info(`Selected ${found.explanation?.slice(0, 30) || "outfit"} for try-on.`);
-    }
+    toast.info(`Fitting ${found?.explanation?.slice(0, 30) || "outfit"} on your Virtual Me…`);
+    tryOnMutation.mutate({ outfitId, garmentItem: null });
   };
 
   // 1. Process Uploaded Photo and 2. Generate Virtual Twin
@@ -496,44 +496,85 @@ function VirtualTryOnPage() {
 
   // 3. OUTFIT TRY-ON MUTATION
   const tryOnMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (params?: {
+      garmentItem?: WardrobeItem | null;
+      outfitId?: string | null;
+      customPrompt?: string;
+    }) => {
+      const currentReqId = ++tryOnRequestIdRef.current;
       setTryOnError(null);
-      const photoToUse = virtualTwinUri || userPhotoDataUri || studioModelUrl;
 
-      // Prepare garment image URI: convert to data URI if available so Gemini receives the actual garment photo
-      let garmentPathToPass: string | null = null;
-      if (activeGarmentInfo?.imageSrc) {
-        const dataUri = await urlToDataUri(activeGarmentInfo.imageSrc);
-        garmentPathToPass = dataUri || activeGarmentInfo.imageSrc;
-      } else if (selectedWardrobeItem?.image_path) {
-        garmentPathToPass = selectedWardrobeItem.image_path;
-      } else if (activeOutfit?.pieces[0]?.item.image_path) {
-        garmentPathToPass = activeOutfit.pieces[0].item.image_path;
+      // Target garment item or outfit
+      const targetItem =
+        params?.garmentItem !== undefined ? params.garmentItem : selectedWardrobeItem;
+      const targetOutfitId = params?.outfitId !== undefined ? params.outfitId : selectedOutfitId;
+      const targetOutfit =
+        targetOutfitId && outfits.data
+          ? (outfits.data.find((o) => o.id === targetOutfitId) ?? null)
+          : null;
+
+      const rawPhotoToUse = virtualTwinUri || userPhotoDataUri || studioModelUrl;
+
+      // Convert photo to data URI if needed so server always receives full image data
+      let photoToUse = rawPhotoToUse;
+      if (!photoToUse.startsWith("data:")) {
+        const dataUri = await urlToDataUri(photoToUse);
+        if (dataUri) photoToUse = dataUri;
       }
 
-      // Check cache with distinct garment ID to prevent stale looks
-      const cacheKey = `${photoToUse.slice(0, 40)}_${activeGarmentInfo?.id || ""}_${effectiveDescription}`;
-      const cached = cachedLooksRef.current.get(cacheKey);
-      if (cached) {
-        return { id: cached.id, look: cached };
+      // Prepare target garment image and prompt description
+      let garmentSrc: string | null = null;
+      let garmentDescription = "";
+
+      if (targetItem) {
+        garmentSrc = targetItem.sample_key
+          ? SAMPLE_IMAGES[targetItem.sample_key]
+          : targetItem.image_path
+            ? (signedGarments.data?.[targetItem.image_path] ?? targetItem.image_path)
+            : null;
+        garmentDescription = `${targetItem.name} in ${targetItem.main_color} (${targetItem.category})`;
+      } else if (targetOutfit) {
+        const firstPiece = targetOutfit.pieces[0];
+        garmentSrc = firstPiece?.item.sample_key
+          ? SAMPLE_IMAGES[firstPiece.item.sample_key]
+          : firstPiece?.item.image_path
+            ? (signedGarments.data?.[firstPiece.item.image_path] ?? firstPiece.item.image_path)
+            : null;
+        const pieceNames = targetOutfit.pieces.map((p) => p.item.name).join(", ");
+        garmentDescription = `${targetOutfit.explanation || targetOutfit.mood || "Curated ensemble"} (${pieceNames})`;
+      }
+
+      if (params?.customPrompt?.trim()) {
+        garmentDescription = params.customPrompt.trim();
+      } else if (customDescription.trim()) {
+        garmentDescription = customDescription.trim();
+      }
+
+      // Ensure full data URI is passed for the garment so AI has full fidelity
+      let garmentPathToPass: string | null = null;
+      if (garmentSrc) {
+        const dataUri = await urlToDataUri(garmentSrc);
+        garmentPathToPass = dataUri || garmentSrc;
       }
 
       const response = await tryOnFn({
         data: {
           personPath: photoToUse,
           garmentPath: garmentPathToPass,
-          description: effectiveDescription,
+          description: garmentDescription || "Curated style garment",
           occasion: selectedOccasion,
           extras: null,
-          parentId: activeOutfit?.id ?? null,
+          parentId: targetOutfit?.id ?? null,
         },
       });
 
       const result = response as { id: string; look: TryOnLookRecord };
-      cachedLooksRef.current.set(cacheKey, result.look);
-      return result;
+      return { id: result.id, look: result.look, reqId: currentReqId };
     },
     onSuccess: (data) => {
+      // Discard stale responses if newer piece was selected while earlier was generating
+      if (data.reqId !== tryOnRequestIdRef.current) return;
+
       setGeneratedLook(data.look);
       setRotatedViews(null);
       setActiveViewMode("slider");

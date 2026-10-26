@@ -20,7 +20,21 @@ export function BeforeAfterSlider({
 }: BeforeAfterSliderProps) {
   const [sliderPosition, setSliderPosition] = useState(50); // percentage 0 - 100
   const [isDragging, setIsDragging] = useState(false);
+  const [containerWidth, setContainerWidth] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const updateWidth = () => {
+      if (containerRef.current) {
+        setContainerWidth(containerRef.current.clientWidth);
+      }
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
 
   const handleMove = useCallback((clientX: number) => {
     if (!containerRef.current) return;
@@ -96,7 +110,8 @@ export function BeforeAfterSlider({
             alt="Original Photo"
             className="absolute inset-0 h-full max-w-none object-cover object-top"
             style={{
-              width: containerRef.current ? `${containerRef.current.clientWidth}px` : "100%",
+              width: containerWidth > 0 ? `${containerWidth}px` : "100%",
+              height: "100%",
             }}
             draggable={false}
           />

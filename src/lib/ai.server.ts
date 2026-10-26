@@ -8,7 +8,21 @@ export const AI_MODEL = process.env["GEMINI_MODEL"] || "gemini-3.8-flash";
 export class AiUnavailableError extends Error {}
 
 export function isAiConfigured(): boolean {
-  return Boolean(process.env["GEMINI_API_KEY"]);
+  const key = process.env["GEMINI_API_KEY"];
+  if (!key || typeof key !== "string") return false;
+  const trimmed = key.trim();
+  if (
+    !trimmed ||
+    trimmed === "your_api_key_here" ||
+    trimmed.includes("your-api-key") ||
+    trimmed.startsWith("mock-") ||
+    trimmed === "undefined" ||
+    trimmed === "null" ||
+    trimmed.length < 15
+  ) {
+    return false;
+  }
+  return true;
 }
 
 export type MessagePart =
@@ -27,12 +41,19 @@ export async function generateStructured<T>(opts: {
   instructions: string;
   messages: ModelMessage[];
 }): Promise<T> {
-  const apiKey = process.env["GEMINI_API_KEY"];
-  if (!apiKey) {
+  if (!isAiConfigured()) {
     throw new AiUnavailableError("AI is not configured. Please set GEMINI_API_KEY.");
   }
+  const apiKey = process.env["GEMINI_API_KEY"]!;
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
+    },
+  });
 
   // Convert input messages into Google GenAI Content format
   const contents: Content[] = [];
@@ -117,13 +138,27 @@ export async function generateStructured<T>(opts: {
       return opts.schema.parse(parsed);
     } catch (err: unknown) {
       lastError = err;
+      const errStr = String(err);
       if (err instanceof Error && err.name === "ZodError") {
         throw new AiUnavailableError("AI returned an invalid schema response");
+      }
+      if (errStr.includes("API key not valid") || errStr.includes("API_KEY_INVALID")) {
+        console.warn(
+          "[Gemini] API key invalid or unconfigured. Falling back to deterministic rules engine.",
+        );
+        break;
       }
     }
   }
 
-  console.error("[Gemini] API error:", lastError);
+  const errText = String(lastError ?? "");
+  if (!errText.includes("API key not valid") && !errText.includes("API_KEY_INVALID")) {
+    console.warn(
+      "[Gemini] API notice:",
+      lastError instanceof Error ? lastError.message : String(lastError),
+    );
+  }
+
   throw new AiUnavailableError(
     "AI service temporarily unavailable. Falling back to deterministic rules engine.",
   );
