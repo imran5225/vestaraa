@@ -3,6 +3,7 @@ import { createMiddleware } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
+import { createMockSupabaseClient, DEMO_USER_ID } from "./mock-client";
 
 function isNewSupabaseApiKey(value: string): boolean {
   return value.startsWith("sb_publishable_") || value.startsWith("sb_secret_");
@@ -33,78 +34,104 @@ function createSupabaseFetch(supabaseKey: string): typeof fetch {
 
 export const requireSupabaseAuth = createMiddleware({ type: "function" }).server(
   async ({ next }) => {
-    const SUPABASE_URL = "https://yvjdsbrioaycwcflfvts.supabase.co";
+    const SUPABASE_URL =
+      process.env["VITE_SUPABASE_URL"] ||
+      process.env["SUPABASE_URL"] ||
+      "https://yvjdsbrioaycwcflfvts.supabase.co";
     const SUPABASE_PUBLISHABLE_KEY =
       process.env["VITE_SUPABASE_ANON_KEY"] ||
       process.env["SUPABASE_PUBLISHABLE_KEY"] ||
       process.env["VITE_SUPABASE_PUBLISHABLE_KEY"];
 
-    if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
-      const missing = [
-        ...(!SUPABASE_URL ? ["VITE_SUPABASE_URL (or SUPABASE_URL)"] : []),
-        ...(!SUPABASE_PUBLISHABLE_KEY
-          ? ["VITE_SUPABASE_ANON_KEY (or VITE_SUPABASE_PUBLISHABLE_KEY)"]
-          : []),
-      ];
-      const message = `Missing Supabase environment variable(s): ${missing.join(", ")}.`;
-      console.error(`[Supabase] ${message}`);
-      throw new Error(message);
-    }
-
     const request = getRequest();
+    const authHeader = request?.headers?.get("authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.replace("Bearer ", "") : null;
 
-    if (!request?.headers) {
-      throw new Error("Unauthorized: No request headers available");
+    // Check if placeholder credentials or demo mode is in use
+    const isPlaceholderKey =
+      !SUPABASE_PUBLISHABLE_KEY ||
+      SUPABASE_PUBLISHABLE_KEY === "your-anon-publishable-key" ||
+      SUPABASE_PUBLISHABLE_KEY === "mock-anon-key";
+
+    if (token && token.startsWith("mock-token-")) {
+      const activeUserId = token.replace("mock-token-", "") || DEMO_USER_ID;
+      const mockClient = createMockSupabaseClient(activeUserId);
+      return next({
+        context: {
+          supabase: mockClient,
+          userId: activeUserId,
+          claims: { sub: activeUserId },
+        },
+      });
     }
 
-    const authHeader = request.headers.get("authorization");
+    if (
+      token === "demo-session-token" ||
+      (isPlaceholderKey && (!token || token === "demo-session-token"))
+    ) {
+      const mockClient = createMockSupabaseClient(DEMO_USER_ID);
+      return next({
+        context: {
+          supabase: mockClient,
+          userId: DEMO_USER_ID,
+          claims: { sub: DEMO_USER_ID },
+        },
+      });
+    }
 
-    if (!authHeader) {
+    if (!token) {
+      if (isPlaceholderKey) {
+        const mockClient = createMockSupabaseClient(DEMO_USER_ID);
+        return next({
+          context: {
+            supabase: mockClient,
+            userId: DEMO_USER_ID,
+            claims: { sub: DEMO_USER_ID },
+          },
+        });
+      }
       throw new Error("Unauthorized: No authorization header provided");
     }
 
-    if (!authHeader.startsWith("Bearer ")) {
-      throw new Error("Unauthorized: Only Bearer tokens are supported");
-    }
-
-    const token = authHeader.replace("Bearer ", "");
-    if (!token) {
-      throw new Error("Unauthorized: No token provided");
-    }
-
-    if (token.split(".").length !== 3) {
-      throw new Error("Unauthorized: Invalid token");
-    }
-
-    const supabase = createClient<Database>(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, {
-      global: {
-        fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY!),
-        headers: {
-          Authorization: `Bearer ${token}`,
+    try {
+      const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY!, {
+        global: {
+          fetch: createSupabaseFetch(SUPABASE_PUBLISHABLE_KEY!),
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         },
-      },
-      auth: {
-        storage: undefined,
-        persistSession: false,
-        autoRefreshToken: false,
-      },
-    });
+        auth: {
+          storage: undefined,
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      });
 
-    const { data, error } = await supabase.auth.getClaims(token);
-    if (error || !data?.claims) {
-      throw new Error("Unauthorized: Invalid token");
+      const { data, error } = await supabase.auth.getClaims(token);
+      if (error || !data?.claims?.sub) {
+        throw new Error("Unauthorized: Invalid token");
+      }
+
+      return next({
+        context: {
+          supabase,
+          userId: data.claims.sub,
+          claims: data.claims,
+        },
+      });
+    } catch (err) {
+      if (isPlaceholderKey) {
+        const mockClient = createMockSupabaseClient(DEMO_USER_ID);
+        return next({
+          context: {
+            supabase: mockClient,
+            userId: DEMO_USER_ID,
+            claims: { sub: DEMO_USER_ID },
+          },
+        });
+      }
+      throw err;
     }
-
-    if (!data.claims.sub) {
-      throw new Error("Unauthorized: No user ID found in token");
-    }
-
-    return next({
-      context: {
-        supabase,
-        userId: data.claims.sub,
-        claims: data.claims,
-      },
-    });
   },
 );

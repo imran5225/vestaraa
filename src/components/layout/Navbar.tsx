@@ -23,8 +23,13 @@ export function useSignOut() {
   return async () => {
     await qc.cancelQueries();
     qc.clear();
-    await supabase.auth.signOut();
-    navigate({ to: "/", replace: true });
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("vestara_username");
+      localStorage.removeItem("vestara_session_token");
+      localStorage.removeItem("vestara_demo_user");
+    }
+    await supabase.auth.signOut().catch(() => {});
+    navigate({ to: "/auth", replace: true });
   };
 }
 
@@ -34,12 +39,28 @@ export function Navbar({ className }: { className?: string }) {
   const signOut = useSignOut();
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      setIsSignedIn(Boolean(data.user));
-    });
+    const hasStoredUser =
+      typeof window !== "undefined" && Boolean(localStorage.getItem("vestara_username"));
+    const isDemo =
+      typeof window !== "undefined" && localStorage.getItem("vestara_demo_user") === "true";
+
+    if (hasStoredUser || isDemo) {
+      setIsSignedIn(true);
+    }
+
+    supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        if (data?.user) setIsSignedIn(true);
+      })
+      .catch(() => {});
 
     const { data: sub } = supabase.auth.onAuthStateChange((_, session) => {
-      setIsSignedIn(Boolean(session?.user));
+      const stored =
+        typeof window !== "undefined" && Boolean(localStorage.getItem("vestara_username"));
+      const demo =
+        typeof window !== "undefined" && localStorage.getItem("vestara_demo_user") === "true";
+      setIsSignedIn(Boolean(session?.user) || stored || demo);
     });
 
     return () => sub.subscription.unsubscribe();

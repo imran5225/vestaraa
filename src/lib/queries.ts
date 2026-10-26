@@ -6,7 +6,12 @@ import type { Slot, WardrobeItem } from "@/lib/domain";
 const DEMO_USER_ID = "00000000-0000-0000-0000-000000000001";
 
 export async function currentUserId() {
-  const { data } = await supabase.auth.getUser();
+  const storedToken =
+    typeof window !== "undefined" ? localStorage.getItem("vestara_session_token") : null;
+  if (storedToken?.startsWith("mock-token-")) {
+    return storedToken.replace("mock-token-", "");
+  }
+  const { data } = await supabase.auth.getUser().catch(() => ({ data: null }));
   if (data?.user) return data.user.id;
   return DEMO_USER_ID;
 }
@@ -14,12 +19,53 @@ export async function currentUserId() {
 export const profileQuery = queryOptions({
   queryKey: ["profile"],
   queryFn: async () => {
-    const { data: userRes } = await supabase.auth.getUser();
+    let userRes: {
+      user: {
+        id: string;
+        email?: string;
+        created_at?: string;
+        user_metadata?: Record<string, unknown>;
+      } | null;
+    } | null = null;
+    try {
+      const res = await supabase.auth.getUser();
+      userRes = res.data;
+    } catch {
+      // offline
+    }
+
+    const storedUsername =
+      typeof window !== "undefined" ? localStorage.getItem("vestara_username") : null;
+    const storedToken =
+      typeof window !== "undefined" ? localStorage.getItem("vestara_session_token") : null;
+
     if (!userRes?.user) {
+      if (storedUsername) {
+        return {
+          id: storedToken?.startsWith("mock-token-")
+            ? storedToken.replace("mock-token-", "")
+            : DEMO_USER_ID,
+          display_name: storedUsername,
+          username: storedUsername,
+          email: `${storedUsername}@auth.vestara.internal`,
+          avatar_url: null,
+          photo_path: null,
+          preferred_styles: ["casual", "smart-casual"],
+          preferred_fits: ["regular", "tailored"],
+          favorite_colors: ["navy", "white", "camel"],
+          avoided_colors: [],
+          typical_occasions: ["casual", "work", "college"],
+          weather_enabled: false,
+          weather_city: "London",
+          comfort_notes: "Prefers natural breathable fabrics.",
+          created_at: new Date().toISOString(),
+        };
+      }
       return {
         id: DEMO_USER_ID,
         display_name: "Style Explorer",
-        email: "demo@vestara.style",
+        username: "demo",
+        email: "demo@auth.vestara.internal",
         avatar_url: null,
         photo_path: null,
         preferred_styles: ["casual", "smart-casual"],
@@ -174,18 +220,21 @@ export const outfitsQuery = (filter: "all" | "saved" = "all", limit = 24) =>
   queryOptions({
     queryKey: ["outfits", filter, limit],
     queryFn: async () => {
-      let q = supabase
-        .from("outfits")
-        .select(OUTFIT_SELECT)
-        .order("created_at", { ascending: false })
-        .limit(limit);
-      if (filter === "saved") q = q.eq("status", "saved");
-      const { data, error } = await q;
-      if (error) {
-        if (error.message.includes("Could not find the table")) return [];
-        throw error;
+      try {
+        let q = supabase
+          .from("outfits")
+          .select(OUTFIT_SELECT)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (filter === "saved") q = q.eq("status", "saved");
+        const { data, error } = await q;
+        if (error) {
+          return [];
+        }
+        return ((data ?? []) as unknown as RawOutfit[]).map(toView);
+      } catch {
+        return [];
       }
-      return ((data ?? []) as unknown as RawOutfit[]).map(toView);
     },
   });
 
@@ -194,48 +243,57 @@ export const outfitQuery = (id: string | null) =>
     queryKey: ["outfit", id],
     enabled: Boolean(id),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("outfits")
-        .select(OUTFIT_SELECT)
-        .eq("id", id!)
-        .maybeSingle();
-      if (error) {
-        if (error.message.includes("Could not find the table")) return null;
-        throw error;
+      try {
+        const { data, error } = await supabase
+          .from("outfits")
+          .select(OUTFIT_SELECT)
+          .eq("id", id!)
+          .maybeSingle();
+        if (error) {
+          return null;
+        }
+        return data ? toView(data as unknown as RawOutfit) : null;
+      } catch {
+        return null;
       }
-      return data ? toView(data as unknown as RawOutfit) : null;
     },
   });
 
 export const feedbackQuery = queryOptions({
   queryKey: ["feedback"],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from("feedback")
-      .select("id,action,slot,colors,item_ids,created_at,outfit_id")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    if (error) {
-      if (error.message.includes("Could not find the table")) return [];
-      throw error;
+    try {
+      const { data, error } = await supabase
+        .from("feedback")
+        .select("id,action,slot,colors,item_ids,created_at,outfit_id")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) {
+        return [];
+      }
+      return data ?? [];
+    } catch {
+      return [];
     }
-    return data ?? [];
   },
 });
 
 export const conversationsQuery = queryOptions({
   queryKey: ["conversations"],
   queryFn: async () => {
-    const { data, error } = await supabase
-      .from("conversations")
-      .select("id,title,updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(20);
-    if (error) {
-      if (error.message.includes("Could not find the table")) return [];
-      throw error;
+    try {
+      const { data, error } = await supabase
+        .from("conversations")
+        .select("id,title,updated_at")
+        .order("updated_at", { ascending: false })
+        .limit(20);
+      if (error) {
+        return [];
+      }
+      return data ?? [];
+    } catch {
+      return [];
     }
-    return data ?? [];
   },
 });
 
@@ -244,13 +302,17 @@ export const messagesQuery = (conversationId: string | null) =>
     queryKey: ["messages", conversationId],
     enabled: Boolean(conversationId),
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select("id,role,content,outfit_id,mode,created_at")
-        .eq("conversation_id", conversationId!)
-        .order("created_at");
-      if (error) throw error;
-      return data ?? [];
+      try {
+        const { data, error } = await supabase
+          .from("messages")
+          .select("id,role,content,outfit_id,mode,created_at")
+          .eq("conversation_id", conversationId!)
+          .order("created_at");
+        if (error) return [];
+        return data ?? [];
+      } catch {
+        return [];
+      }
     },
   });
 
@@ -262,13 +324,17 @@ export function useSignedUrls(paths: string[]) {
     enabled: unique.length > 0,
     staleTime: 50 * 60 * 1000,
     queryFn: async () => {
-      const { data, error } = await supabase.storage
-        .from("wardrobe")
-        .createSignedUrls(unique, 3600);
-      if (error) throw error;
-      const map: Record<string, string> = {};
-      for (const d of data ?? []) if (d.path && d.signedUrl) map[d.path] = d.signedUrl;
-      return map;
+      try {
+        const { data, error } = await supabase.storage
+          .from("wardrobe")
+          .createSignedUrls(unique, 3600);
+        if (error) return {};
+        const map: Record<string, string> = {};
+        for (const d of data ?? []) if (d.path && d.signedUrl) map[d.path] = d.signedUrl;
+        return map;
+      } catch {
+        return {};
+      }
     },
   });
 }

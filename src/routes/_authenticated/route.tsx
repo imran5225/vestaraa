@@ -19,15 +19,41 @@ function AuthenticatedGuard() {
 
     async function verifySession() {
       try {
+        const storedUser =
+          typeof window !== "undefined" ? localStorage.getItem("vestara_username") : null;
+        const storedToken =
+          typeof window !== "undefined" ? localStorage.getItem("vestara_session_token") : null;
+        const isDemo =
+          typeof window !== "undefined" && localStorage.getItem("vestara_demo_user") === "true";
+
+        // Active username or demo session
+        if (storedUser || storedToken || isDemo) {
+          if (isMounted) {
+            setIsAuthenticated(true);
+            setChecking(false);
+          }
+          return;
+        }
+
         const {
           data: { session },
           error,
-        } = await supabase.auth.getSession();
+        } = await supabase.auth
+          .getSession()
+          .catch(() => ({ data: { session: null }, error: null }));
 
         if (!isMounted) return;
 
+        // Double check in case storage was updated during async lookup
+        const doubleCheckUser =
+          typeof window !== "undefined" ? localStorage.getItem("vestara_username") : null;
+        if (doubleCheckUser) {
+          setIsAuthenticated(true);
+          setChecking(false);
+          return;
+        }
+
         if (error || !session) {
-          // Store return path so the user is returned here after login
           const currentPath =
             typeof window !== "undefined"
               ? window.location.pathname + window.location.search
@@ -44,6 +70,13 @@ function AuthenticatedGuard() {
         setIsAuthenticated(true);
       } catch (err) {
         console.error("Session verification failed:", err);
+        const doubleCheckUser =
+          typeof window !== "undefined" ? localStorage.getItem("vestara_username") : null;
+        if (doubleCheckUser && isMounted) {
+          setIsAuthenticated(true);
+          setChecking(false);
+          return;
+        }
         if (isMounted) {
           navigate({ to: "/auth", replace: true });
         }
@@ -56,15 +89,35 @@ function AuthenticatedGuard() {
 
     verifySession();
 
-    // Listen to auth events (logout, token expiry, login)
+    // Listen to Supabase auth events
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
 
+      const hasCustomSession =
+        typeof window !== "undefined" && Boolean(localStorage.getItem("vestara_username"));
+      const isDemo =
+        typeof window !== "undefined" && localStorage.getItem("vestara_demo_user") === "true";
+
+      // If user is authenticated via custom username session or demo, do NOT kick them out on !session!
+      if (hasCustomSession || isDemo) {
+        if (event === "SIGNED_OUT") {
+          localStorage.removeItem("vestara_username");
+          localStorage.removeItem("vestara_session_token");
+          localStorage.removeItem("vestara_demo_user");
+          setIsAuthenticated(false);
+          await queryClient.cancelQueries();
+          queryClient.clear();
+          navigate({ to: "/auth", replace: true });
+        } else {
+          setIsAuthenticated(true);
+        }
+        return;
+      }
+
       if (event === "SIGNED_OUT" || !session) {
         setIsAuthenticated(false);
-        // Clear all cached private queries
         await queryClient.cancelQueries();
         queryClient.clear();
         navigate({ to: "/auth", replace: true });
