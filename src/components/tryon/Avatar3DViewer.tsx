@@ -12,9 +12,13 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  Sparkles,
+  AlertCircle,
+  Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import type { BodyProportions } from "@/lib/pose-analyzer";
 
 export interface Avatar3DProps {
   topColor?: string;
@@ -23,7 +27,11 @@ export interface Avatar3DProps {
   shoesColor?: string;
   hasOuterwear?: boolean;
   skinTone?: string;
+  hairColor?: string;
   outfitPresetName?: string;
+  proportions?: BodyProportions | null;
+  hasUserPhoto?: boolean;
+  onUploadPhotoPrompt?: () => void;
   onColorChange?: (part: "top" | "bottom" | "outerwear" | "shoes", color: string) => void;
   className?: string;
 }
@@ -75,7 +83,11 @@ export function Avatar3DViewer({
   outerwearColor = "#1B2A4A",
   shoesColor = "#F5F5F7",
   hasOuterwear = false,
-  skinTone = "#E8D5C4",
+  skinTone,
+  hairColor,
+  proportions,
+  hasUserPhoto = false,
+  onUploadPhotoPrompt,
   onColorChange,
   className,
 }: Avatar3DProps) {
@@ -86,9 +98,13 @@ export function Avatar3DViewer({
     outerwear: THREE.MeshStandardMaterial;
     shoes: THREE.MeshStandardMaterial;
     skin: THREE.MeshStandardMaterial;
+    hair: THREE.MeshStandardMaterial;
   } | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const outerwearMeshRef = useRef<THREE.Group | null>(null);
+  const avatarGroupRef = useRef<THREE.Group | null>(null);
+  const torsoGroupRef = useRef<THREE.Group | null>(null);
+  const bottomGroupRef = useRef<THREE.Group | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -100,13 +116,18 @@ export function Avatar3DViewer({
     "top" | "bottom" | "outerwear" | "shoes"
   >("top");
 
-  // Track colors internally to support local overrides if no callback is supplied
+  // Determine skin tone and hair color from proportions or fallback props
+  const effectiveSkin = proportions?.skinTone || skinTone || "#E8D5C4";
+  const effectiveHair = proportions?.hairColor || hairColor || "#2B2520";
+
+  // Track colors internally
   const [localTop, setLocalTop] = useState(topColor);
   const [localBottom, setLocalBottom] = useState(bottomColor);
   const [localOuterwear, setLocalOuterwear] = useState(outerwearColor);
   const [localShoes, setLocalShoes] = useState(shoesColor);
   const [localHasOuterwear, setLocalHasOuterwear] = useState(hasOuterwear);
-  const [localSkin, setLocalSkin] = useState(skinTone);
+  const [localSkin, setLocalSkin] = useState(effectiveSkin);
+  const [localHair, setLocalHair] = useState(effectiveHair);
 
   // Sync props when updated externally
   useEffect(() => setLocalTop(topColor), [topColor]);
@@ -114,7 +135,8 @@ export function Avatar3DViewer({
   useEffect(() => setLocalOuterwear(outerwearColor), [outerwearColor]);
   useEffect(() => setLocalShoes(shoesColor), [shoesColor]);
   useEffect(() => setLocalHasOuterwear(hasOuterwear), [hasOuterwear]);
-  useEffect(() => setLocalSkin(skinTone), [skinTone]);
+  useEffect(() => setLocalSkin(effectiveSkin), [effectiveSkin]);
+  useEffect(() => setLocalHair(effectiveHair), [effectiveHair]);
 
   // Update Three.js material colors without re-mounting the canvas
   useEffect(() => {
@@ -124,10 +146,31 @@ export function Avatar3DViewer({
     materialsRef.current.outerwear.color.set(localOuterwear);
     materialsRef.current.shoes.color.set(localShoes);
     materialsRef.current.skin.color.set(localSkin);
+    materialsRef.current.hair.color.set(localHair);
     if (outerwearMeshRef.current) {
       outerwearMeshRef.current.visible = localHasOuterwear;
     }
-  }, [localTop, localBottom, localOuterwear, localShoes, localHasOuterwear, localSkin]);
+  }, [localTop, localBottom, localOuterwear, localShoes, localHasOuterwear, localSkin, localHair]);
+
+  // Dynamic proportion scaling when photo analysis changes
+  useEffect(() => {
+    if (!avatarGroupRef.current) return;
+    const p = proportions;
+    const heightScale = p?.heightScale ?? 1.0;
+    const shoulderWidth = p?.shoulderWidth ?? 1.0;
+    const torsoScale = p?.torsoScale ?? 1.0;
+    const legScale = p?.legScale ?? 1.0;
+
+    // Apply scale adjustments
+    avatarGroupRef.current.scale.set(shoulderWidth, heightScale, (shoulderWidth + 1) / 2);
+
+    if (torsoGroupRef.current) {
+      torsoGroupRef.current.scale.set(shoulderWidth, torsoScale, 1.0);
+    }
+    if (bottomGroupRef.current) {
+      bottomGroupRef.current.scale.set(1.0, legScale, 1.0);
+    }
+  }, [proportions]);
 
   useEffect(() => {
     if (controlsRef.current) {
@@ -188,10 +231,9 @@ export function Avatar3DViewer({
     controls.target.set(0, 0.95, 0);
     controls.minDistance = 1.6;
     controls.maxDistance = 4.2;
-    // Limit polar angle so model stays upright and grounded
     controls.minPolarAngle = Math.PI / 6;
     controls.maxPolarAngle = Math.PI / 2.05;
-    controls.autoRotate = autoRotate;
+    controls.autoRotate = false;
     controls.autoRotateSpeed = 1.2;
     controlsRef.current = controls;
 
@@ -259,15 +301,21 @@ export function Avatar3DViewer({
     scene.add(ringMesh);
 
     // ==========================================
-    // PROCEDURAL STYLIZED 3D AVATAR MODEL (Group)
+    // PROCEDURAL PERSONALIZED 3D AVATAR MODEL
     // ==========================================
     const avatarGroup = new THREE.Group();
+    avatarGroupRef.current = avatarGroup;
 
     // PBR Materials
     const skinMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(localSkin),
       roughness: 0.55,
       metalness: 0.08,
+    });
+    const hairMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(localHair),
+      roughness: 0.85,
+      metalness: 0.04,
     });
     const topMat = new THREE.MeshStandardMaterial({
       color: new THREE.Color(localTop),
@@ -289,11 +337,6 @@ export function Avatar3DViewer({
       roughness: 0.45,
       metalness: 0.12,
     });
-    const accentMat = new THREE.MeshStandardMaterial({
-      color: 0x222224,
-      roughness: 0.3,
-      metalness: 0.4,
-    });
 
     materialsRef.current = {
       top: topMat,
@@ -301,9 +344,10 @@ export function Avatar3DViewer({
       outerwear: outerwearMat,
       shoes: shoesMat,
       skin: skinMat,
+      hair: hairMat,
     };
 
-    // 1. HEAD & NECK
+    // 1. HEAD & HAIR
     const headGroup = new THREE.Group();
     // Neck
     const neckGeo = new THREE.CylinderGeometry(0.065, 0.08, 0.14, 24);
@@ -311,17 +355,26 @@ export function Avatar3DViewer({
     neckMesh.position.y = 1.48;
     headGroup.add(neckMesh);
 
-    // Stylized Faceless Fashion Mannequin Head
+    // Head
     const headGeo = new THREE.SphereGeometry(0.125, 32, 28);
     headGeo.scale(0.85, 1.15, 0.95);
     const headMesh = new THREE.Mesh(headGeo, skinMat);
     headMesh.position.set(0, 1.62, 0);
     headMesh.castShadow = !isSoftwareGl;
     headGroup.add(headMesh);
+
+    // Hair Cap / Geometry (styled to match sampled hair color)
+    const hairGeo = new THREE.SphereGeometry(0.13, 24, 20);
+    hairGeo.scale(0.88, 0.95, 0.98);
+    const hairMesh = new THREE.Mesh(hairGeo, hairMat);
+    hairMesh.position.set(0, 1.66, -0.02);
+    headGroup.add(hairMesh);
+
     avatarGroup.add(headGroup);
 
     // 2. TORSO / TOP GARMENT
     const torsoGroup = new THREE.Group();
+    torsoGroupRef.current = torsoGroup;
 
     // Upper Torso / Chest
     const chestGeo = new THREE.CylinderGeometry(0.2, 0.165, 0.28, 28);
@@ -348,7 +401,7 @@ export function Avatar3DViewer({
 
     // 3. ARMS & HANDS
     const armsGroup = new THREE.Group();
-    const armPositions = [-1, 1]; // Left and right
+    const armPositions = [-1, 1];
 
     armPositions.forEach((side) => {
       // Shoulder
@@ -365,7 +418,7 @@ export function Avatar3DViewer({
       upperArmMesh.castShadow = !isSoftwareGl;
       armsGroup.add(upperArmMesh);
 
-      // Forearm (skin or sleeve depending on fit)
+      // Forearm
       const forearmGeo = new THREE.CylinderGeometry(0.043, 0.038, 0.24, 20);
       const forearmMesh = new THREE.Mesh(forearmGeo, skinMat);
       forearmMesh.position.set(side * 0.265, 1.02, 0.03);
@@ -423,8 +476,9 @@ export function Avatar3DViewer({
 
     // 5. BOTTOM / TROUSERS & LEGS
     const bottomGroup = new THREE.Group();
+    bottomGroupRef.current = bottomGroup;
 
-    // Hips / Pelvis
+    // Pelvis
     const pelvisGeo = new THREE.CylinderGeometry(0.18, 0.19, 0.16, 28);
     const pelvisMesh = new THREE.Mesh(pelvisGeo, bottomMat);
     pelvisMesh.position.set(0, 0.92, 0);
@@ -448,52 +502,51 @@ export function Avatar3DViewer({
       kneeMesh.position.set(legX, 0.48, 0);
       bottomGroup.add(kneeMesh);
 
-      // Calf & Trouser Leg
-      const calfGeo = new THREE.CylinderGeometry(0.066, 0.062, 0.38, 24);
+      // Calf / Shin
+      const calfGeo = new THREE.CylinderGeometry(0.068, 0.052, 0.42, 24);
       const calfMesh = new THREE.Mesh(calfGeo, bottomMat);
-      calfMesh.position.set(legX, 0.29, 0);
+      calfMesh.position.set(legX, 0.26, 0);
       calfMesh.castShadow = !isSoftwareGl;
       bottomGroup.add(calfMesh);
 
-      // Trouser Cuff
-      const cuffGeo = new THREE.TorusGeometry(0.063, 0.012, 12, 24);
-      cuffGeo.rotateX(Math.PI / 2);
-      const cuffMesh = new THREE.Mesh(cuffGeo, bottomMat);
-      cuffMesh.position.set(legX, 0.11, 0);
-      bottomGroup.add(cuffMesh);
+      // Ankle
+      const ankleGeo = new THREE.CylinderGeometry(0.048, 0.045, 0.06, 20);
+      const ankleMesh = new THREE.Mesh(ankleGeo, bottomMat);
+      ankleMesh.position.set(legX, 0.06, 0);
+      bottomGroup.add(ankleMesh);
+
+      // Shoes / Footwear
+      const shoeGroup = new THREE.Group();
+      shoeGroup.position.set(legX, 0.03, 0.02);
+
+      const shoeBodyGeo = new THREE.BoxGeometry(0.09, 0.06, 0.19);
+      const shoeBodyMesh = new THREE.Mesh(shoeBodyGeo, shoesMat);
+      shoeBodyMesh.position.set(0, 0, 0.02);
+      shoeBodyMesh.castShadow = !isSoftwareGl;
+      shoeGroup.add(shoeBodyMesh);
+
+      // Shoe Sole
+      const soleGeo = new THREE.BoxGeometry(0.094, 0.018, 0.2);
+      const soleMat = new THREE.MeshStandardMaterial({
+        color: 0x222224,
+        roughness: 0.4,
+      });
+      const soleMesh = new THREE.Mesh(soleGeo, soleMat);
+      soleMesh.position.set(0, -0.026, 0.02);
+      shoeGroup.add(soleMesh);
+
+      bottomGroup.add(shoeGroup);
     });
 
     avatarGroup.add(bottomGroup);
-
-    // 6. SHOES / FOOTWEAR
-    const shoesGroup = new THREE.Group();
-    armPositions.forEach((side) => {
-      const footX = side * 0.095;
-
-      // Shoe body
-      const shoeGeo = new THREE.BoxGeometry(0.088, 0.08, 0.21);
-      const shoeMesh = new THREE.Mesh(shoeGeo, shoesMat);
-      shoeMesh.position.set(footX, 0.05, 0.03);
-      shoeMesh.castShadow = !isSoftwareGl;
-      shoesGroup.add(shoeMesh);
-
-      // Shoe Sole
-      const soleGeo = new THREE.BoxGeometry(0.092, 0.024, 0.22);
-      const soleMesh = new THREE.Mesh(soleGeo, accentMat);
-      soleMesh.position.set(footX, 0.012, 0.03);
-      shoesGroup.add(soleMesh);
-    });
-
-    avatarGroup.add(shoesGroup);
-
     scene.add(avatarGroup);
 
     // Animation Loop
     let animationFrameId: number;
     const animate = () => {
+      animationFrameId = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
-      animationFrameId = requestAnimationFrame(animate);
     };
     animate();
 
@@ -510,13 +563,11 @@ export function Avatar3DViewer({
     const resizeObserver = new ResizeObserver(handleResize);
     resizeObserver.observe(container);
 
-    // Cleanup on unmount
     return () => {
       cancelAnimationFrame(animationFrameId);
       resizeObserver.disconnect();
       controls.dispose();
 
-      // Dispose geometries & materials
       avatarGroup.traverse((child) => {
         if (child instanceof THREE.Mesh) {
           child.geometry.dispose();
@@ -592,15 +643,40 @@ export function Avatar3DViewer({
       {/* 3D WebGL Canvas Mount Container */}
       <div ref={mountRef} className="h-full w-full cursor-grab active:cursor-grabbing" />
 
-      {/* Top Floating Badges (Zero Occlusion) */}
-      <div className="pointer-events-none absolute left-4 top-4 flex flex-col gap-1.5">
+      {/* Top Status & Proportions Banner */}
+      <div className="pointer-events-none absolute left-4 top-4 flex max-w-sm flex-col gap-1.5">
         <span className="inline-flex items-center gap-1.5 rounded-full bg-background/90 px-3 py-1 text-xs font-medium text-foreground shadow-sm backdrop-blur-sm">
-          <span className="size-2 rounded-full bg-bronze" />
-          3D Mannequin Visualizer
+          <span className={cn("size-2 rounded-full", hasUserPhoto ? "bg-success" : "bg-bronze")} />
+          {hasUserPhoto ? "Personalized 3D Avatar" : "Default 3D Mannequin"}
         </span>
-        <span className="rounded-md bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground backdrop-blur-sm">
-          Interactive Three.js Model · Drag to Rotate · Scroll to Zoom
-        </span>
+
+        {!hasUserPhoto && onUploadPhotoPrompt && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-bronze/30 bg-background/95 p-2 text-xs text-foreground shadow-sm backdrop-blur-sm">
+            <Sparkles className="size-3.5 shrink-0 text-bronze" />
+            <span className="text-[11px]">Upload a photo to personalize your avatar.</span>
+            <Button
+              size="sm"
+              variant="quiet"
+              className="h-6 px-2 text-[10px]"
+              onClick={onUploadPhotoPrompt}
+            >
+              <Upload className="mr-1 size-3" /> Upload
+            </Button>
+          </div>
+        )}
+
+        {hasUserPhoto && proportions?.warning && (
+          <div className="pointer-events-auto flex items-start gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-2 text-[11px] text-amber-900 dark:text-amber-200 shadow-sm backdrop-blur-sm">
+            <AlertCircle className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+            <span>{proportions.warning}</span>
+          </div>
+        )}
+
+        {hasUserPhoto && !proportions?.warning && (
+          <span className="rounded-md bg-background/70 px-2 py-0.5 text-[10px] text-muted-foreground backdrop-blur-sm">
+            Proportions, skin tone & hair matched from photo
+          </span>
+        )}
       </div>
 
       {/* Floating View Controls (Top Right) */}
@@ -652,10 +728,9 @@ export function Avatar3DViewer({
         </Button>
       </div>
 
-      {/* Unified Bottom Control Dock (Section 5 Three.js Directives) */}
+      {/* Bottom Control Dock */}
       <div className="absolute bottom-3 left-1/2 z-10 w-[94%] max-w-xl -translate-x-1/2 transition-all duration-300">
         <div className="overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-lift backdrop-blur-md">
-          {/* Header Bar with Collapse Toggle */}
           <div className="flex items-center justify-between border-b px-4 py-2 text-xs">
             <div className="flex items-center gap-2">
               <button
@@ -700,157 +775,90 @@ export function Avatar3DViewer({
                 </>
               ) : (
                 <>
-                  <span>Hide</span>
+                  <span>Minimize</span>
                   <ChevronDown className="size-3" />
                 </>
               )}
             </Button>
           </div>
 
-          {/* Collapsible Content */}
           {!controlsCollapsed && (
-            <div className="p-3">
+            <div className="p-3 text-xs">
               {activeTab === "colors" ? (
-                <div className="space-y-2.5">
-                  {/* Part Selector */}
-                  <div className="flex items-center gap-1 text-xs">
-                    {(["top", "bottom", "outerwear", "shoes"] as const).map((part) => (
-                      <button
-                        key={part}
-                        onClick={() => setActiveColorTarget(part)}
-                        className={cn(
-                          "rounded-full px-2.5 py-0.5 capitalize transition-all",
-                          activeColorTarget === part
-                            ? "bg-secondary font-semibold text-foreground"
-                            : "text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        {part}
-                      </button>
-                    ))}
-                  </div>
-
-                  {/* Swatches */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {COLOR_PALETTES[activeColorTarget].map((color) => {
-                      const currentVal =
-                        activeColorTarget === "top"
-                          ? localTop
-                          : activeColorTarget === "bottom"
-                            ? localBottom
-                            : activeColorTarget === "outerwear"
-                              ? localOuterwear
-                              : localShoes;
-                      const isSelected = currentVal.toLowerCase() === color.hex.toLowerCase();
-                      return (
+                <div>
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="font-medium text-muted-foreground">
+                      Select Garment Target:
+                    </span>
+                    <div className="flex gap-1">
+                      {(["top", "bottom", "outerwear", "shoes"] as const).map((t) => (
                         <button
-                          key={color.name}
-                          onClick={() => selectColor(color.hex)}
-                          title={`${color.name} (${color.hex})`}
+                          key={t}
+                          onClick={() => setActiveColorTarget(t)}
                           className={cn(
-                            "group relative size-6 rounded-full border border-border shadow-xs transition-transform hover:scale-110",
-                            isSelected && "ring-2 ring-primary ring-offset-1",
+                            "rounded-md px-2 py-0.5 text-[11px] capitalize transition-colors",
+                            activeColorTarget === t
+                              ? "bg-secondary font-medium text-secondary-foreground"
+                              : "text-muted-foreground hover:text-foreground",
                           )}
-                          style={{ backgroundColor: color.hex }}
-                        />
-                      );
-                    })}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    {COLOR_PALETTES[activeColorTarget].map((c) => (
+                      <button
+                        key={c.name}
+                        title={c.name}
+                        onClick={() => selectColor(c.hex)}
+                        style={{ backgroundColor: c.hex }}
+                        className={cn(
+                          "size-6 rounded-full border border-border shadow-sm transition-transform hover:scale-110",
+                          (activeColorTarget === "top" && localTop === c.hex) ||
+                            (activeColorTarget === "bottom" && localBottom === c.hex) ||
+                            (activeColorTarget === "outerwear" && localOuterwear === c.hex) ||
+                            (activeColorTarget === "shoes" && localShoes === c.hex)
+                            ? "ring-2 ring-primary ring-offset-2 ring-offset-background"
+                            : "",
+                        )}
+                      />
+                    ))}
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2.5 text-xs">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <label className="flex items-center gap-2 font-medium">
-                      <input
-                        type="checkbox"
-                        checked={localHasOuterwear}
-                        onChange={(e) => setLocalHasOuterwear(e.target.checked)}
-                        className="rounded"
-                      />
-                      <span>Outerwear Layer (Blazer / Coat)</span>
-                    </label>
-
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-muted-foreground">Mannequin Tone:</span>
-                      <div className="flex gap-1">
-                        {COLOR_PALETTES.skin.map((s) => (
-                          <button
-                            key={s.name}
-                            onClick={() => setLocalSkin(s.hex)}
-                            title={s.name}
-                            className={cn(
-                              "size-4 rounded-full border border-border",
-                              localSkin === s.hex && "ring-1.5 ring-primary",
-                            )}
-                            style={{ backgroundColor: s.hex }}
-                          />
-                        ))}
-                      </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        const next = !localHasOuterwear;
+                        setLocalHasOuterwear(next);
+                      }}
+                      className={cn(
+                        "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+                        localHasOuterwear
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-card text-muted-foreground hover:bg-secondary",
+                      )}
+                    >
+                      {localHasOuterwear ? "Outerwear: Layered (On)" : "Outerwear: Hidden (Off)"}
+                    </button>
+                    <span className="text-[11px] text-muted-foreground">
+                      Toggle jacket, trench or blazer overlay
+                    </span>
+                  </div>
+                  {proportions && (
+                    <div className="text-[11px] text-muted-foreground">
+                      Height: {proportions.heightScale.toFixed(2)}x · Shoulders:{" "}
+                      {proportions.shoulderWidth.toFixed(2)}x
                     </div>
-                  </div>
-
-                  {/* Preset Outfits */}
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] text-muted-foreground">Presets:</span>
-                    {[
-                      {
-                        name: "Casual Denim",
-                        top: "#FFFFFF",
-                        bottom: "#22334F",
-                        outer: "#1B2A4A",
-                        hasOuter: false,
-                        shoes: "#F5F5F7",
-                      },
-                      {
-                        name: "Oxford & Chino",
-                        top: "#7BA4C7",
-                        bottom: "#D8C7B0",
-                        outer: "#1B2A4A",
-                        hasOuter: false,
-                        shoes: "#633B22",
-                      },
-                      {
-                        name: "Navy Blazer",
-                        top: "#ECE4D8",
-                        bottom: "#3B3D40",
-                        outer: "#1B2A4A",
-                        hasOuter: true,
-                        shoes: "#1A1A1A",
-                      },
-                      {
-                        name: "Camel Trench",
-                        top: "#18181A",
-                        bottom: "#1D1E20",
-                        outer: "#B88E5E",
-                        hasOuter: true,
-                        shoes: "#633B22",
-                      },
-                    ].map((preset) => (
-                      <button
-                        key={preset.name}
-                        onClick={() => {
-                          setLocalTop(preset.top);
-                          setLocalBottom(preset.bottom);
-                          setLocalOuterwear(preset.outer);
-                          setLocalHasOuterwear(preset.hasOuter);
-                          setLocalShoes(preset.shoes);
-                        }}
-                        className="rounded-full border bg-background/50 px-2 py-0.5 text-[11px] hover:bg-secondary"
-                      >
-                        {preset.name}
-                      </button>
-                    ))}
-                  </div>
+                  )}
                 </div>
               )}
             </div>
           )}
         </div>
-      </div>
-
-      {/* Ground Truth & Methodology Notice Bar */}
-      <div className="pointer-events-none absolute bottom-1 right-2 text-[10px] text-muted-foreground/75">
-        Procedural Three.js 3D Fashion Mannequin
       </div>
     </div>
   );

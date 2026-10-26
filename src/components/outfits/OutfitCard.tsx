@@ -1,6 +1,16 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, BookmarkCheck, Check, Heart, RefreshCw, Shirt, ThumbsDown } from "lucide-react";
+import {
+  Bookmark,
+  BookmarkCheck,
+  Check,
+  Heart,
+  RefreshCw,
+  Shirt,
+  ThumbsDown,
+  Wand2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { ItemImage } from "@/components/wardrobe/ItemImage";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +34,7 @@ interface Props {
 
 export function OutfitCard({ outfit, onReplaced, compact }: Props) {
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const feedbackFn = useServerFn(recordFeedback);
   const swapFn = useServerFn(swapOutfitItem);
   const signed = useSignedUrls(
@@ -171,6 +182,20 @@ export function OutfitCard({ outfit, onReplaced, compact }: Props) {
           onClick={() => feedback.mutate(saved ? "unsave" : "save")}
         >
           {saved ? <BookmarkCheck /> : <Bookmark />} {saved ? "Saved" : "Save outfit"}
+        </Button>
+        <Button
+          size="sm"
+          variant="quiet"
+          disabled={busy}
+          onClick={() =>
+            navigate({
+              to: "/try-on",
+              search: { outfitId: outfit.id },
+            })
+          }
+          className="border border-bronze/30 text-bronze hover:bg-bronze/10"
+        >
+          <Wand2 /> Try this outfit
         </Button>
         <Button size="sm" variant="quiet" disabled={busy} onClick={() => feedback.mutate("worn")}>
           <Check /> Wear this look
