@@ -71,12 +71,16 @@ export async function generateStructured<T>(opts: {
     }
 
     if (parts.length > 0) {
-      contents.push({ role, parts });
+      if (contents.length > 0 && contents[contents.length - 1].role === role) {
+        contents[contents.length - 1].parts.push(...parts);
+      } else {
+        contents.push({ role, parts });
+      }
     }
   }
 
-  // Model cascade: try configured model first, fall back if experiencing spikes
-  const modelsToTry = [AI_MODEL, "gemini-3.5-flash", "gemini-flash-latest"];
+  // Model cascade: try configured model first, then fast light model, then latest alias
+  const modelsToTry = [AI_MODEL, "gemini-3.1-flash-lite", "gemini-flash-latest"];
   const uniqueModels = [...new Set(modelsToTry)];
 
   let lastError: unknown = null;
@@ -89,7 +93,7 @@ export async function generateStructured<T>(opts: {
         config: {
           systemInstruction: opts.instructions,
           responseMimeType: "application/json",
-          temperature: 0.3,
+          temperature: 0.2,
         },
       });
 
@@ -98,10 +102,17 @@ export async function generateStructured<T>(opts: {
         throw new AiUnavailableError("Gemini returned an empty response");
       }
 
-      const cleaned = text
-        .replace(/^```json\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .trim();
+      let cleaned = text.trim();
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleaned = jsonMatch[0];
+      } else {
+        cleaned = cleaned
+          .replace(/^```json\s*/i, "")
+          .replace(/```\s*$/i, "")
+          .trim();
+      }
+
       const parsed = JSON.parse(cleaned);
       return opts.schema.parse(parsed);
     } catch (err: unknown) {

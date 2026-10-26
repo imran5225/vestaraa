@@ -198,18 +198,26 @@ export interface OutfitView {
   pieces: OutfitPiece[];
 }
 
+import {
+  getConversations,
+  getConversationMessages,
+  getOutfits,
+  getOutfitById,
+} from "@/lib/styling.functions";
+
 const SLOT_ORDER: Slot[] = ["outerwear", "top", "bottom", "shoes", "accessory"];
 
 const OUTFIT_SELECT =
   "id,occasion,mood,explanation,score,source,status,piece_count,worn_at,created_at,outfit_items(slot,item:wardrobe_items(*))";
 
 type RawOutfit = Omit<OutfitView, "pieces"> & {
-  outfit_items: { slot: string; item: WardrobeItem | null }[];
+  outfit_items?: { slot: string; item: WardrobeItem | null }[];
 };
 
 function toView(raw: RawOutfit): OutfitView {
-  const pieces = raw.outfit_items
-    .filter((p): p is { slot: string; item: WardrobeItem } => Boolean(p.item))
+  const items = Array.isArray(raw?.outfit_items) ? raw.outfit_items : [];
+  const pieces = items
+    .filter((p): p is { slot: string; item: WardrobeItem } => Boolean(p && p.item))
     .map((p) => ({ slot: p.slot as Slot, item: p.item }))
     .sort((a, b) => SLOT_ORDER.indexOf(a.slot) - SLOT_ORDER.indexOf(b.slot));
   const { outfit_items: _ignored, ...rest } = raw;
@@ -220,6 +228,12 @@ export const outfitsQuery = (filter: "all" | "saved" = "all", limit = 24) =>
   queryOptions({
     queryKey: ["outfits", filter, limit],
     queryFn: async () => {
+      try {
+        const data = await getOutfits({ data: { filter, limit } });
+        if (Array.isArray(data)) return (data as unknown as RawOutfit[]).map(toView);
+      } catch {
+        // Fallback to client-side supabase if available
+      }
       try {
         let q = supabase
           .from("outfits")
@@ -243,11 +257,18 @@ export const outfitQuery = (id: string | null) =>
     queryKey: ["outfit", id],
     enabled: Boolean(id),
     queryFn: async () => {
+      if (!id) return null;
+      try {
+        const data = await getOutfitById({ data: { outfitId: id } });
+        if (data) return toView(data as unknown as RawOutfit);
+      } catch {
+        // Fallback to client-side supabase if available
+      }
       try {
         const { data, error } = await supabase
           .from("outfits")
           .select(OUTFIT_SELECT)
-          .eq("id", id!)
+          .eq("id", id)
           .maybeSingle();
         if (error) {
           return null;
@@ -282,6 +303,12 @@ export const conversationsQuery = queryOptions({
   queryKey: ["conversations"],
   queryFn: async () => {
     try {
+      const data = await getConversations();
+      if (Array.isArray(data)) return data;
+    } catch {
+      // Fallback to client-side supabase if available
+    }
+    try {
       const { data, error } = await supabase
         .from("conversations")
         .select("id,title,updated_at")
@@ -302,11 +329,18 @@ export const messagesQuery = (conversationId: string | null) =>
     queryKey: ["messages", conversationId],
     enabled: Boolean(conversationId),
     queryFn: async () => {
+      if (!conversationId) return [];
+      try {
+        const data = await getConversationMessages({ data: { conversationId } });
+        if (Array.isArray(data)) return data;
+      } catch {
+        // Fallback to client-side supabase if available
+      }
       try {
         const { data, error } = await supabase
           .from("messages")
           .select("id,role,content,outfit_id,mode,created_at")
-          .eq("conversation_id", conversationId!)
+          .eq("conversation_id", conversationId)
           .order("created_at");
         if (error) return [];
         return data ?? [];

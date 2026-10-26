@@ -95,9 +95,14 @@ export const OCCASION_STYLES: Record<string, string[]> = {
   college: ["casual", "streetwear", "smart-casual", "athleisure"],
   casual: ["casual", "streetwear", "athleisure", "smart-casual"],
   work: ["smart-casual", "formal"],
+  business: ["formal", "smart-casual"],
   evening: ["smart-casual", "formal", "party"],
   party: ["party", "streetwear", "smart-casual"],
   travel: ["casual", "athleisure", "smart-casual"],
+  formal: ["formal", "smart-casual"],
+  wedding: ["formal", "smart-casual", "party"],
+  date: ["smart-casual", "casual", "formal"],
+  dinner: ["smart-casual", "formal", "party"],
 };
 
 const MOOD_STYLE: Record<string, string> = {

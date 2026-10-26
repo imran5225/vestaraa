@@ -10,6 +10,8 @@ import {
 } from "@/features/recommendations/engine";
 import type { OutfitSlots, Slot, WeatherContext } from "@/lib/domain";
 
+import { SAMPLE_WARDROBE } from "@/lib/sample-wardrobe";
+
 export type Db = SupabaseClient<Database>;
 
 export async function loadStylingContext(supabase: Db, userId: string) {
@@ -33,6 +35,28 @@ export async function loadStylingContext(supabase: Db, userId: string) {
       .limit(8),
   ]);
   if (items.error) throw new Error("Could not load your wardrobe");
+
+  let wardrobe = (items.data ?? []) as EngineItem[];
+  if (!wardrobe.length) {
+    const sampleRows = SAMPLE_WARDROBE.map((s, idx) => ({
+      id: `${userId}-${s.sample_key}`,
+      user_id: userId,
+      name: s.name,
+      category: s.category,
+      main_color: s.main_color,
+      secondary_colors: [],
+      pattern: s.pattern,
+      style: s.style,
+      fit: s.fit,
+      seasons: s.seasons,
+      sample_key: s.sample_key,
+      is_sample: true,
+      created_at: new Date(Date.now() - idx * 3600000).toISOString(),
+    }));
+    await supabase.from("wardrobe_items").insert(sampleRows);
+    wardrobe = sampleRows as unknown as EngineItem[];
+  }
+
   const signals = buildFeedbackSignals(
     (feedback.data ?? []).map((r) => ({
       action: r.action,
@@ -42,7 +66,7 @@ export async function loadStylingContext(supabase: Db, userId: string) {
     })),
   );
   return {
-    wardrobe: (items.data ?? []) as EngineItem[],
+    wardrobe,
     profile: profile.data,
     signals,
     recentSignatures: (recent.data ?? []).map((r) => r.signature),

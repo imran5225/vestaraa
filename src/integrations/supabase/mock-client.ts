@@ -121,7 +121,14 @@ class MockQueryBuilder {
   }
 
   select(_fields?: string, options?: { count?: string; head?: boolean }) {
-    this.op = "select";
+    if (
+      this.op !== "insert" &&
+      this.op !== "update" &&
+      this.op !== "delete" &&
+      this.op !== "upsert"
+    ) {
+      this.op = "select";
+    }
     if (options?.head) {
       this.headOnly = true;
     }
@@ -233,7 +240,10 @@ class MockQueryBuilder {
       });
       list.push(...inserted);
 
-      const result = this.isSingle ? inserted[0] : inserted;
+      const result = this.isSingle || this.isMaybeSingle ? (inserted[0] ?? null) : inserted;
+      if (this.isSingle && !inserted[0]) {
+        return { data: null, error: { message: "Row not found" } };
+      }
       return { data: result, error: null };
     }
 
@@ -249,7 +259,8 @@ class MockQueryBuilder {
           updated.push(row);
         }
       }
-      return { data: this.isSingle ? (updated[0] ?? null) : updated, error: null };
+      const result = this.isSingle || this.isMaybeSingle ? (updated[0] ?? null) : updated;
+      return { data: result, error: null };
     }
 
     if (this.op === "delete") {
@@ -263,7 +274,8 @@ class MockQueryBuilder {
         }
       }
       (globalMockStore[this.tableName] as MockRow[]) = remaining;
-      return { data: removed, error: null };
+      const result = this.isSingle || this.isMaybeSingle ? (removed[0] ?? null) : removed;
+      return { data: result, error: null };
     }
 
     if (this.op === "upsert") {
@@ -271,6 +283,7 @@ class MockQueryBuilder {
       const items: MockRow[] = raw.map((item) =>
         typeof item === "object" && item !== null ? (item as MockRow) : {},
       );
+      const affected: MockRow[] = [];
       for (const item of items) {
         const id = typeof item["id"] === "string" ? item["id"] : crypto.randomUUID();
         const existingIdx = list.findIndex((r) => r["id"] === id);
@@ -282,15 +295,46 @@ class MockQueryBuilder {
         };
         if (existingIdx >= 0) {
           list[existingIdx] = { ...list[existingIdx], ...record };
+          affected.push(list[existingIdx]);
         } else {
           list.push(record);
+          affected.push(record);
         }
       }
-      return { data: this.isSingle ? items[0] : items, error: null };
+      const result = this.isSingle || this.isMaybeSingle ? (affected[0] ?? null) : affected;
+      return { data: result, error: null };
     }
 
     // Default: select
     let rows = list.filter((r) => this.filters.every((f) => f(r)));
+
+    if (this.tableName === "outfits") {
+      const outfitItemsList = (globalMockStore.outfit_items as MockRow[]) ?? [];
+      const wardrobeList = (globalMockStore.wardrobe_items as MockRow[]) ?? [];
+      const wardrobeById = new Map(wardrobeList.map((w) => [w["id"], w]));
+
+      rows = rows.map((outfit) => {
+        const items = outfitItemsList
+          .filter((oi) => oi["outfit_id"] === outfit["id"])
+          .map((oi) => ({
+            slot: oi["slot"],
+            item: wardrobeById.get(oi["item_id"]) ?? null,
+          }));
+        return {
+          ...outfit,
+          outfit_items: items,
+        };
+      });
+    }
+
+    if (this.tableName === "feedback") {
+      const outfitsList = (globalMockStore.outfits as MockRow[]) ?? [];
+      const outfitById = new Map(outfitsList.map((o) => [o["id"], o]));
+      rows = rows.map((fb) => ({
+        ...fb,
+        outfit: outfitById.get(fb["outfit_id"]) ?? null,
+      }));
+    }
 
     if (this.orderCol) {
       const col = this.orderCol;

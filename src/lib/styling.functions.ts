@@ -279,17 +279,29 @@ const stylistSchema = z.object({
   reply: z.string(),
 });
 
-const STYLIST_INSTRUCTIONS = `You are VÉSTARA's professional AI personal styling assistant (the VÉSTARA Style Assistant). Provide practical, personalized fashion advice based on the user's stated preferences, occasion, available clothing, budget, and context. Explain your recommendations clearly, offer alternatives, and ask concise clarifying questions when important information is missing. Never invent product availability, prices, weather conditions, or wardrobe items. Clearly distinguish suggestions from verified facts. Be inclusive, respectful, and nonjudgmental; never comment on body types.
-Outfits you build use ONLY the user's wardrobe listed in the context (each item has an id).
-Decide the user's intent:
-- recommend: they want an outfit (set occasion: college|casual|work|evening|party|travel or a short custom word).
-- formal: they want a dressier version.
-- weather: they want the look adapted to weather.
-- swap: they dislike one piece; set swapSlot (top|bottom|shoes|outerwear|accessory). Leave picks null.
-- reject: they dislike the whole look, or want a different colour or vibe.
-- chat: general styling question (colour matching, accessories, budget advice, choosing between two outfits, seasonal tips). No outfit needed.
-For recommend/formal/weather/reject, fill picks with wardrobe item ids (top, bottom, shoes required; outerwear/accessory optional, null if not used). Never invent ids.
-Reply: for outfits, 2-4 sentences naming the pieces, why the colours work, and one styling tip. For chat, a helpful answer of up to ~150 words with a concrete alternative. No emojis.`;
+const STYLIST_INSTRUCTIONS = `You are VÉSTARA's professional AI personal styling assistant (the VÉSTARA Style Assistant). You build bespoke, occasion-aware outfits and provide tailored styling advice.
+
+ABSOLUTE STRICTEST CONSTITUTION & WARDROBE BOUNDARY:
+1. EXCLUSIVE WARDROBE USAGE: You can ONLY and EXCLUSIVELY recommend, pick, and discuss garments, shoes, and accessories that are explicitly present in the user's WARDROBE inventory provided below.
+2. ZERO EXTERNAL CLOTHES: NEVER recommend, invent, suggest, or name garments, shoes, accessories, or brands that are not present in the user's WARDROBE inventory. Do not suggest buying new pieces or imaginary clothes.
+3. EXACT ITEM IDS: When suggesting or updating an outfit (intent = recommend | formal | weather | reject), you MUST fill 'picks' using the EXACT 'id' of the piece from the WARDROBE list below:
+   - top: exact id of an owned top or shirt (REQUIRED)
+   - bottom: exact id of owned trousers or jeans (REQUIRED)
+   - shoes: exact id of owned shoes (REQUIRED)
+   - outerwear: exact id of owned jacket/coat from wardrobe, or null if not needed
+   - accessory: exact id of owned accessory from wardrobe, or null if not needed
+   NEVER use fake, invented, or approximate IDs.
+4. OCCASION & NEED MATCHING: Pick the harmonious combination from the user's wardrobe that best suits their stated need (e.g. college, work, dinner, party, casual, travel, formal, wedding, weather, etc.).
+5. STYLING EXPLANATION: In 'reply', explicitly name the exact pieces chosen from their wardrobe, explain why their colors and styles harmonize, and give one practical styling tip (e.g. cuffing, tucking, or layering). No emojis.
+6. IF WARDROBE IS EMPTY OR INSUFFICIENT: If the wardrobe has no items or lacks required pieces, politely explain that VÉSTARA crafts outfits exclusively from their personal wardrobe, specify which piece is missing, and invite them to add pieces or load the sample wardrobe.
+
+DECIDE INTENT:
+- recommend: the user wants an outfit for an occasion, event, weather, or general need (set occasion to: college|casual|work|evening|party|travel|formal|date|dinner or custom word).
+- formal: user wants to dress up or make the look sharper.
+- weather: user wants look adapted to temperature, rain, or climate.
+- swap: user asks to change or replace one specific piece (set swapSlot to: top|bottom|shoes|outerwear|accessory).
+- reject: user dislikes the whole look or wants a completely different combination.
+- chat: general fashion questions (e.g. color theory). Even in chat, only suggest pairing items that the user actually owns in their wardrobe.`;
 
 async function interpret(
   supabase: Db,
@@ -306,17 +318,22 @@ async function interpret(
     .select("role,content")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(8);
   const past = (history ?? []).reverse().slice(0, -1);
+
+  const fullInstructions = `${STYLIST_INSTRUCTIONS}
+
+--- USER'S CURRENT WARDROBE INVENTORY (ONLY USE ITEMS FROM THIS LIST) ---
+${wardrobeSummary}
+
+--- CURRENT CANVAS OUTFIT ---
+${currentSummary}`;
+
   try {
     return await generateStructured({
       schema: stylistSchema,
-      instructions: STYLIST_INSTRUCTIONS,
+      instructions: fullInstructions,
       messages: [
-        {
-          role: "user",
-          content: `WARDROBE:\n${wardrobeSummary}\n\nCURRENT OUTFIT:\n${currentSummary}`,
-        },
         ...past.map((m) => ({
           role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
           content: m.content,
@@ -324,10 +341,91 @@ async function interpret(
         { role: "user", content: text },
       ],
     });
-  } catch {
+  } catch (err) {
+    console.warn("[Stylist AI error]:", err);
     return null;
   }
 }
+
+export const getConversations = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { data } = await context.supabase
+      .from("conversations")
+      .select("id,title,updated_at")
+      .eq("user_id", context.userId)
+      .order("updated_at", { ascending: false })
+      .limit(20);
+    return data ?? [];
+  });
+
+export const getConversationMessages = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ conversationId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: messages } = await context.supabase
+      .from("messages")
+      .select("id,role,content,outfit_id,mode,created_at")
+      .eq("conversation_id", data.conversationId)
+      .order("created_at", { ascending: true });
+    return messages ?? [];
+  });
+
+export const deleteConversation = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ conversationId: z.string().uuid().optional() }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    if (data.conversationId) {
+      await context.supabase.from("messages").delete().eq("conversation_id", data.conversationId);
+      await context.supabase.from("conversations").delete().eq("id", data.conversationId);
+    } else {
+      await context.supabase.from("messages").delete().eq("user_id", context.userId);
+      await context.supabase.from("conversations").delete().eq("user_id", context.userId);
+    }
+    return { ok: true };
+  });
+
+export const getOutfits = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        filter: z.enum(["all", "saved"]).optional(),
+        limit: z.number().optional(),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    let q = context.supabase
+      .from("outfits")
+      .select(
+        "id,occasion,mood,explanation,score,source,status,piece_count,worn_at,created_at,outfit_items(slot,item:wardrobe_items(*))",
+      )
+      .eq("user_id", context.userId)
+      .order("created_at", { ascending: false })
+      .limit(data.limit ?? 24);
+    if (data.filter === "saved") {
+      q = q.eq("status", "saved");
+    }
+    const { data: rows } = await q;
+    return rows ?? [];
+  });
+
+export const getOutfitById = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) => z.object({ outfitId: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const { data: outfit } = await context.supabase
+      .from("outfits")
+      .select(
+        "id,occasion,mood,explanation,score,source,status,piece_count,worn_at,created_at,outfit_items(slot,item:wardrobe_items(*))",
+      )
+      .eq("id", data.outfitId)
+      .maybeSingle();
+    return outfit ?? null;
+  });
 
 export const sendStylistMessage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
@@ -342,160 +440,278 @@ export const sendStylistMessage = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     let conversationId = data.conversationId;
-    if (!conversationId) {
-      const { data: conv, error } = await supabase
+
+    try {
+      if (!conversationId) {
+        const { data: conv, error } = await supabase
+          .from("conversations")
+          .insert({ user_id: userId, title: data.text.slice(0, 60) })
+          .select("id")
+          .single();
+        if (error || !conv) {
+          conversationId = crypto.randomUUID();
+        } else {
+          conversationId = (conv as { id: string }).id;
+        }
+      }
+
+      const { data: conv } = await supabase
         .from("conversations")
-        .insert({ user_id: userId, title: data.text.slice(0, 60) })
-        .select("id")
-        .single();
-      if (error || !conv) throw new Error("Could not start a conversation");
-      conversationId = conv.id;
-    }
-    const { data: conv } = await supabase
-      .from("conversations")
-      .select("current_outfit_id")
-      .eq("id", conversationId)
-      .single();
-    await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      user_id: userId,
-      role: "user",
-      content: data.text,
-    });
+        .select("current_outfit_id")
+        .eq("id", conversationId)
+        .maybeSingle();
 
-    const loaded = await loadStylingContext(supabase, userId);
-    const current = conv?.current_outfit_id
-      ? await loadOutfitSlots(supabase, conv.current_outfit_id)
-      : null;
-    const byId = new Map(loaded.wardrobe.map((i) => [i.id, i]));
-    const wardrobeSummary =
-      loaded.wardrobe
-        .map(
-          (i) =>
-            `${i.id} | ${i.name} | ${i.category} | ${i.main_color ?? "?"} | ${i.pattern ?? "?"} | ${i.style ?? "?"}`,
-        )
-        .join("\n") || "(empty)";
-    const currentSummary = current
-      ? (Object.entries(current.slots) as [Slot, string][])
-          .map(([s, id]) => `${s}: ${byId.get(id)?.name ?? "removed"} (${id})`)
-          .join("\n")
-      : "(none)";
+      await supabase.from("messages").insert({
+        conversation_id: conversationId,
+        user_id: userId,
+        role: "user",
+        content: data.text,
+      });
 
-    const ai = await interpret(
-      supabase,
-      userId,
-      conversationId,
-      data.text,
-      wardrobeSummary,
-      currentSummary,
-    );
-    const mode = ai ? "ai" : "rules";
-    const rule = parseIntent(data.text);
-    const intent: StylistIntent = ai?.intent ?? rule.intent;
-    const occasion =
-      ai?.occasion?.toLowerCase() || rule.occasion || current?.outfit.occasion || "casual";
-    const swapTarget = (ai?.swapSlot ?? rule.slot) as Slot | null;
-
-    let outfitId: string | null = null;
-    let content: string;
-
-    if (intent === "chat") {
-      content =
-        ai?.reply ??
-        "I can build a look from your wardrobe, swap a piece, or make it dressier. Try “What should I wear to college today?”";
-    } else if (intent === "swap") {
-      if (!current)
-        content =
-          "There's no outfit on the table yet. Tell me where you're heading and I'll build one first.";
-      else if (!swapTarget)
-        content = "Which piece should I change — the top, bottom, shoes, outerwear or accessory?";
-      else {
-        const r = await swapInternal(supabase, userId, current.outfit.id, swapTarget);
-        if (r.ok) {
-          outfitId = r.outfitId;
-          const fresh = await loadOutfitSlots(supabase, r.outfitId);
-          content =
-            `Swapped the ${swapTarget} — everything else stays. ${fresh?.outfit.explanation ?? ""}`.trim();
-        } else content = r.reason;
-      }
-    } else {
-      if (intent === "reject" && current) {
-        await supabase.from("outfits").update({ status: "rejected" }).eq("id", current.outfit.id);
-        const ids = Object.values(current.slots).filter((v): v is string => Boolean(v));
-        await supabase.from("feedback").insert({
-          user_id: userId,
-          outfit_id: current.outfit.id,
-          action: "dislike",
-          item_ids: ids,
-          colors: await colorsFor(supabase, ids),
-        });
-      }
-      const weather =
-        intent === "weather" || loaded.profile?.weather_enabled
-          ? await weatherFor(loaded.profile, true)
-          : null;
-      const mood = intent === "formal" ? "formal" : null;
-      const exclude = intent === "reject" && current ? [] : undefined;
-      const ctx = buildEngineContext(loaded, { occasion, mood, weather, excludeItemIds: exclude });
-      if (intent === "reject" && current)
-        ctx.recentSignatures = [...(ctx.recentSignatures ?? []), current.outfit.signature];
-
-      const aiSlots: OutfitSlots | null = ai
-        ? validateSlots(loaded.wardrobe, cleanPicks(ai.picks))
+      const loaded = await loadStylingContext(supabase, userId);
+      const current = (conv as { current_outfit_id?: string | null })?.current_outfit_id
+        ? await loadOutfitSlots(supabase, (conv as { current_outfit_id: string }).current_outfit_id)
         : null;
-      const rejectedSame =
-        aiSlots &&
-        current &&
-        intent === "reject" &&
-        JSON.stringify(aiSlots) === JSON.stringify(current.slots);
-      let result: EngineResult;
-      let source: "ai" | "rules" = "rules";
-      if (aiSlots && !rejectedSame) {
-        const { scoreOutfit } = await import("@/features/recommendations/engine");
-        const items = Object.values(aiSlots).map((id) => byId.get(id!)!);
-        result = { ok: true, outfit: scoreOutfit(items, ctx), alternatives: 0 };
-        source = "ai";
-      } else {
-        result = recommendOutfit(loaded.wardrobe, ctx);
+      const byId = new Map(loaded.wardrobe.map((i) => [i.id, i]));
+
+      // Check if wardrobe is completely empty
+      if (!loaded.wardrobe.length) {
+        const emptyMsg =
+          "Your wardrobe is currently empty! VÉSTARA only ever recommends outfits built strictly from the clothes you already own. Please head to your Wardrobe to add your pieces, or load our curated sample wardrobe so I can style looks for you right away.";
+        const assistantMsg = {
+          id: crypto.randomUUID(),
+          conversation_id: conversationId,
+          user_id: userId,
+          role: "assistant" as const,
+          content: emptyMsg,
+          outfit_id: null,
+          mode: "rules" as const,
+          created_at: new Date().toISOString(),
+        };
+        await supabase.from("messages").insert(assistantMsg);
+        return { conversationId, mode: "rules" as const, message: assistantMsg };
       }
-      if (!result.ok) {
-        content = `${result.reason} Head to your wardrobe to add pieces, or load the sample wardrobe to explore.`;
+
+      const wardrobeSummary =
+        loaded.wardrobe
+          .map(
+            (i) =>
+              `${i.id} | ${i.name} | ${i.category} | ${i.main_color ?? "?"} | ${i.pattern ?? "?"} | ${i.style ?? "?"}`,
+          )
+          .join("\n") || "(empty)";
+      const currentSummary = current
+        ? (Object.entries(current.slots) as [Slot, string][])
+            .map(([s, id]) => `${s}: ${byId.get(id)?.name ?? "removed"} (${id})`)
+            .join("\n")
+        : "(none)";
+
+      const ai = await interpret(
+        supabase,
+        userId,
+        conversationId,
+        data.text,
+        wardrobeSummary,
+        currentSummary,
+      );
+      const mode = ai ? "ai" : "rules";
+      const rule = parseIntent(data.text);
+
+      // If rule detected an outfit need (recommend, swap, reject, formal, weather), prioritize it over generic chat
+      let intent: StylistIntent = ai?.intent ?? rule.intent;
+      if (intent === "chat" && rule.intent !== "chat") {
+        intent = rule.intent;
+      }
+
+      const occasion =
+        ai?.occasion?.toLowerCase() || rule.occasion || current?.outfit.occasion || "casual";
+      const swapTarget = (ai?.swapSlot ?? rule.slot) as Slot | null;
+
+      let outfitId: string | null = null;
+      let content: string;
+
+      if (intent === "chat") {
+        // General advice: guide the user using only items in their wardrobe
+        if (ai?.reply) {
+          content = ai.reply;
+        } else {
+          // Smart fallback referencing their actual wardrobe pieces
+          const sampleNames = loaded.wardrobe
+            .slice(0, 4)
+            .map((i) => i.name)
+            .join(", ");
+          content = `I build complete looks exclusively from your wardrobe (including your ${sampleNames}). Tell me where you are heading—like college, work, dinner, a party, or a casual weekend—and I will craft the ideal outfit for you.`;
+        }
+      } else if (intent === "swap") {
+        if (!current)
+          content =
+            "There's no outfit on the canvas yet. Tell me where you're heading and I'll build one first from your wardrobe.";
+        else if (!swapTarget)
+          content = "Which piece should I change — the top, bottom, shoes, outerwear or accessory?";
+        else {
+          const r = await swapInternal(supabase, userId, current.outfit.id, swapTarget);
+          if (r.ok) {
+            outfitId = r.outfitId;
+            const fresh = await loadOutfitSlots(supabase, r.outfitId);
+            content =
+              `Swapped the ${swapTarget} — every other piece stays from your wardrobe. ${fresh?.outfit.explanation ?? ""}`.trim();
+          } else content = r.reason;
+        }
       } else {
-        const explanation =
-          source === "ai" && ai ? ai.reply : describe(loaded.wardrobe, result.outfit, ctx);
-        outfitId = await persistOutfit(supabase, userId, {
-          outfit: result.outfit,
+        if (intent === "reject" && current) {
+          await supabase.from("outfits").update({ status: "rejected" }).eq("id", current.outfit.id);
+          const ids = Object.values(current.slots).filter((v): v is string => Boolean(v));
+          await supabase.from("feedback").insert({
+            user_id: userId,
+            outfit_id: current.outfit.id,
+            action: "dislike",
+            item_ids: ids,
+            colors: await colorsFor(supabase, ids),
+          });
+        }
+        const weather =
+          intent === "weather" || loaded.profile?.weather_enabled
+            ? await weatherFor(loaded.profile, true)
+            : null;
+        const mood = intent === "formal" ? "formal" : null;
+        const exclude = intent === "reject" && current ? [] : undefined;
+        const ctx = buildEngineContext(loaded, {
           occasion,
           mood,
-          explanation,
-          source,
           weather,
-          parentOutfitId: current?.outfit.id ?? null,
+          excludeItemIds: exclude,
         });
-        const weatherNote =
-          intent === "weather" && !weather
-            ? " Live weather isn't set up, so I layered conservatively — enable it in your profile for live conditions."
-            : "";
-        content = explanation + weatherNote;
+        if (intent === "reject" && current)
+          ctx.recentSignatures = [...(ctx.recentSignatures ?? []), current.outfit.signature];
+
+        // Validate that AI picks strictly exist in the user's wardrobe and have required slots
+        const aiSlots: OutfitSlots | null = ai
+          ? validateSlots(loaded.wardrobe, cleanPicks(ai.picks))
+          : null;
+        const rejectedSame =
+          aiSlots &&
+          current &&
+          intent === "reject" &&
+          JSON.stringify(aiSlots) === JSON.stringify(current.slots);
+
+        let result: EngineResult;
+        let source: "ai" | "rules" = "rules";
+
+        if (aiSlots && !rejectedSame) {
+          const { scoreOutfit } = await import("@/features/recommendations/engine");
+          const items = Object.values(aiSlots).map((id) => byId.get(id!)!);
+          result = { ok: true, outfit: scoreOutfit(items, ctx), alternatives: 0 };
+          source = "ai";
+        } else {
+          // Fall back to deterministic outfit engine which ALWAYS guarantees pieces strictly from wardrobe
+          result = recommendOutfit(loaded.wardrobe, ctx);
+        }
+
+        if (!result.ok) {
+          content = `${result.reason} VÉSTARA only recommends outfits built from the clothes you already own. Head to your wardrobe to add pieces, or load the sample wardrobe to explore.`;
+        } else {
+          // Always derive explanation strictly based on the items in the outfit
+          const explanation =
+            source === "ai" && ai?.reply ? ai.reply : describe(loaded.wardrobe, result.outfit, ctx);
+
+          outfitId = await persistOutfit(supabase, userId, {
+            outfit: result.outfit,
+            occasion,
+            mood,
+            explanation,
+            source,
+            weather,
+            parentOutfitId: current?.outfit.id ?? null,
+          });
+
+          const weatherNote =
+            intent === "weather" && !weather
+              ? " Live weather isn't set up, so I layered conservatively from your wardrobe."
+              : "";
+          content = explanation + weatherNote;
+        }
+      }
+
+      const assistantMsg = {
+        id: crypto.randomUUID(),
+        conversation_id: conversationId,
+        user_id: userId,
+        role: "assistant" as const,
+        content,
+        outfit_id: outfitId,
+        mode,
+        created_at: new Date().toISOString(),
+      };
+
+      await supabase.from("messages").insert(assistantMsg);
+      await supabase
+        .from("conversations")
+        .update({
+          updated_at: new Date().toISOString(),
+          ...(outfitId ? { current_outfit_id: outfitId } : {}),
+        })
+        .eq("id", conversationId);
+
+      return { conversationId, mode, message: assistantMsg };
+    } catch (err) {
+      console.error("[Stylist error caught]:", err);
+      try {
+        const loaded = await loadStylingContext(supabase, userId);
+        const ctx = buildEngineContext(loaded, { occasion: "casual" });
+        const result = recommendOutfit(loaded.wardrobe, ctx);
+        const explanation = result.ok
+          ? describe(loaded.wardrobe, result.outfit, ctx)
+          : "I style exclusively using the pieces in your wardrobe. Let me know which occasion or event you're preparing for!";
+
+        let fallbackOutfitId: string | null = null;
+        if (result.ok) {
+          try {
+            fallbackOutfitId = await persistOutfit(supabase, userId, {
+              outfit: result.outfit,
+              occasion: "casual",
+              explanation,
+              source: "rules",
+            });
+          } catch {
+            // ignore persistence error in failsafe
+          }
+        }
+
+        const safeConvId = conversationId || crypto.randomUUID();
+        const fallbackMsg = {
+          id: crypto.randomUUID(),
+          conversation_id: safeConvId,
+          user_id: userId,
+          role: "assistant" as const,
+          content: explanation,
+          outfit_id: fallbackOutfitId,
+          mode: "rules" as const,
+          created_at: new Date().toISOString(),
+        };
+
+        try {
+          await supabase.from("messages").insert(fallbackMsg);
+        } catch {
+          // ignore
+        }
+
+        return { conversationId: safeConvId, mode: "rules" as const, message: fallbackMsg };
+      } catch (innerErr) {
+        console.error("[Stylist critical fallback error]:", innerErr);
+        const safeConvId = conversationId || crypto.randomUUID();
+        const ultimateMsg = {
+          id: crypto.randomUUID(),
+          conversation_id: safeConvId,
+          user_id: userId,
+          role: "assistant" as const,
+          content:
+            "I am ready to style tailored looks exclusively from your wardrobe. Tell me your occasion—such as college, work, dinner, party, or casual!",
+          outfit_id: null,
+          mode: "rules" as const,
+          created_at: new Date().toISOString(),
+        };
+        return { conversationId: safeConvId, mode: "rules" as const, message: ultimateMsg };
       }
     }
-
-    await supabase.from("messages").insert({
-      conversation_id: conversationId,
-      user_id: userId,
-      role: "assistant",
-      content,
-      outfit_id: outfitId,
-      mode,
-    });
-    await supabase
-      .from("conversations")
-      .update({
-        updated_at: new Date().toISOString(),
-        ...(outfitId ? { current_outfit_id: outfitId } : {}),
-      })
-      .eq("id", conversationId);
-    return { conversationId, mode };
   });
 
 function cleanPicks(p: Record<string, string | null>): OutfitSlots {

@@ -10,20 +10,27 @@ export interface ParsedIntent {
 }
 
 const OCCASION_WORDS: [RegExp, string][] = [
-  [/\b(college|class|campus|uni|university|school)\b/i, "college"],
-  [/\b(work|office|meeting|interview)\b/i, "work"],
-  [/\b(party|club|celebrat)/i, "party"],
-  [/\b(dinner|date|evening|night out)\b/i, "evening"],
-  [/\b(travel|flight|trip|airport)\b/i, "travel"],
-  [/\b(casual|weekend|errand|chill)\b/i, "casual"],
+  [/\b(college|class|campus|uni|university|school|study|lecture|library|student)\b/i, "college"],
+  [
+    /\b(work|office|meeting|interview|business|presentation|conference|corporate|client)\b/i,
+    "work",
+  ],
+  [/\b(party|club|clubbing|celebrat|festival|dance|birthday|gala|cocktail)\b/i, "party"],
+  [/\b(dinner|date|evening|night out|romantic|restaurant|anniversary)\b/i, "evening"],
+  [/\b(travel|flight|trip|airport|journey|vacation|holiday|roadtrip)\b/i, "travel"],
+  [/\b(wedding|reception|ceremony)\b/i, "evening"],
+  [
+    /\b(casual|weekend|errand|chill|daily|everyday|coffee|hangout|lounge|relaxing|walk)\b/i,
+    "casual",
+  ],
 ];
 
 const SLOT_WORDS: [RegExp, Slot][] = [
   [/\b(shoe|shoes|sneaker|sneakers|loafer|loafers|boot|boots|footwear)\b/i, "shoes"],
-  [/\b(top|shirt|tee|t-shirt|sweater|knit|hoodie)\b/i, "top"],
+  [/\b(top|shirt|tee|t-shirt|sweater|knit|hoodie|polo)\b/i, "top"],
   [/\b(pants|trousers|jeans|chinos|bottom|bottoms|shorts|skirt)\b/i, "bottom"],
-  [/\b(jacket|coat|blazer|outerwear|layer)\b/i, "outerwear"],
-  [/\b(accessor|watch|belt|bag|cap|hat|scarf)/i, "accessory"],
+  [/\b(jacket|coat|blazer|outerwear|layer|overcoat|trench)\b/i, "outerwear"],
+  [/\b(accessor|watch|belt|bag|cap|hat|scarf|sunglasses)/i, "accessory"],
 ];
 
 export function parseIntent(text: string): ParsedIntent {
@@ -37,11 +44,16 @@ export function parseIntent(text: string): ParsedIntent {
     (swapLike && !slot)
   )
     return { intent: "reject", occasion, slot: null };
-  if (/\b(rain|rainy|cold|chilly|hot|weather|snow|warm)\b/i.test(text))
+  if (/\b(rain|rainy|cold|chilly|hot|weather|snow|warm|freeze|freezing|humid)\b/i.test(text))
     return { intent: "weather", occasion, slot: null };
-  if (/\b(formal|dressier|dressy|smarter|elegant|polished)\b/i.test(text))
+  if (/\b(formal|dressier|dressy|smarter|elegant|polished|fancy)\b/i.test(text))
     return { intent: "formal", occasion, slot: null };
-  if (occasion || /\b(wear|outfit|look|style me|what should)\b/i.test(text))
-    return { intent: "recommend", occasion, slot: null };
+  if (
+    occasion ||
+    /\b(wear|outfit|look|style me|what should|recommend|suggestion|suggest|clothes|cloths|clothing|dress|pick|pieces|put together|combination|need|attire)\b/i.test(
+      text,
+    )
+  )
+    return { intent: "recommend", occasion: occasion ?? "casual", slot: null };
   return { intent: "chat", occasion: null, slot: null };
 }

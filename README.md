@@ -24,15 +24,15 @@ cp .env.example .env
 
 ### Required Variables:
 
-| Variable | Description | Runtime |
-| :--- | :--- | :--- |
-| `VITE_SUPABASE_URL` | Supabase Project URL (`https://<ref>.supabase.co`) | Client & Server |
-| `VITE_SUPABASE_ANON_KEY` | Supabase Anonymous Publishable Key | Client & Server |
-| `SUPABASE_URL` | Supabase Project URL for server operations | Server |
-| `SUPABASE_PUBLISHABLE_KEY`| Supabase Publishable Key for server operations | Server |
-| `GEMINI_API_KEY` | Google Gemini API Key for AI features | Server-only (Secret) |
+| Variable                   | Description                                        | Runtime              |
+| :------------------------- | :------------------------------------------------- | :------------------- |
+| `VITE_SUPABASE_URL`        | Supabase Project URL (`https://<ref>.supabase.co`) | Client & Server      |
+| `VITE_SUPABASE_ANON_KEY`   | Supabase Anonymous Publishable Key                 | Client & Server      |
+| `SUPABASE_URL`             | Supabase Project URL for server operations         | Server               |
+| `SUPABASE_PUBLISHABLE_KEY` | Supabase Publishable Key for server operations     | Server               |
+| `GEMINI_API_KEY`           | Google Gemini API Key for AI features              | Server-only (Secret) |
 
-*(Note: `GEMINI_MODEL` defaults to `gemini-3.8-flash` if not explicitly set).*
+_(Note: `GEMINI_MODEL` defaults to `gemini-3.8-flash` if not explicitly set)._
 
 ---
 
@@ -51,22 +51,27 @@ cp .env.example .env
 ## Local Development
 
 1. **Install dependencies**:
+
    ```bash
    npm install
    ```
 
 2. **Start the local dev server**:
+
    ```bash
    npm run dev
    ```
+
    Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 3. **Run automated test suite**:
+
    ```bash
    npm test
    ```
 
 4. **Verify linting**:
+
    ```bash
    npm run lint
    ```

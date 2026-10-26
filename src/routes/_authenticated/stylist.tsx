@@ -2,16 +2,16 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Plus, RotateCcw, Send, Trash2 } from "lucide-react";
+import { Plus, RotateCcw, Send, Shirt, Sparkles, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/layout/AppShell";
 import { LoadingState, PageHeader } from "@/components/common/States";
 import { OutfitCard } from "@/components/outfits/OutfitCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
-import { conversationsQuery, messagesQuery, outfitQuery } from "@/lib/queries";
-import { sendStylistMessage } from "@/lib/styling.functions";
+import { conversationsQuery, messagesQuery, outfitQuery, wardrobeQuery } from "@/lib/queries";
+import { deleteConversation, sendStylistMessage } from "@/lib/styling.functions";
+import { useLoadSamples } from "./dashboard";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/_authenticated/stylist")({
@@ -27,10 +27,12 @@ export const Route = createFileRoute("/_authenticated/stylist")({
 });
 
 const PROMPTS = [
-  "What should I wear to college today?",
+  "Recommend an outfit for college today",
+  "Style a sharp look for work / meeting",
+  "Dinner date outfit from my clothes",
+  "Party look from my wardrobe",
   "Which colours go with my navy blazer?",
-  "Party look on a small budget",
-  "Make it more casual",
+  "Make this more casual",
 ];
 
 function MessageOutfit({ id }: { id: string }) {
@@ -45,7 +47,11 @@ function MessageOutfit({ id }: { id: string }) {
 function Page() {
   const qc = useQueryClient();
   const send = useServerFn(sendStylistMessage);
+  const removeConversationFn = useServerFn(deleteConversation);
   const convs = useQuery(conversationsQuery);
+  const wardrobe = useQuery(wardrobeQuery);
+  const samples = useLoadSamples();
+  const wardrobeCount = wardrobe.data?.length ?? 0;
   const [convId, setConvId] = useState<string | null>(null);
   const msgs = useQuery(messagesQuery(convId));
   const [text, setText] = useState("");
@@ -65,9 +71,16 @@ function Page() {
     },
     onSuccess: (r) => {
       setConvId(r.conversationId);
+      if (r && "message" in r && r.message) {
+        qc.setQueryData(["messages", r.conversationId], (old: unknown[] = []) => [
+          ...old,
+          r.message,
+        ]);
+      }
       qc.invalidateQueries({ queryKey: ["messages", r.conversationId] });
       qc.invalidateQueries({ queryKey: ["conversations"] });
       qc.invalidateQueries({ queryKey: ["outfits"] });
+      qc.invalidateQueries({ queryKey: ["wardrobe"] });
     },
     onError: (_e, t) => setFailed(t),
     onSettled: () => setPending(null),
@@ -75,16 +88,15 @@ function Page() {
 
   async function removeConversations(id?: string) {
     if (!confirm(id ? "Delete this conversation?" : "Delete all saved conversations?")) return;
-    let q = supabase.from("conversations").delete();
-    q = id ? q.eq("id", id) : q.not("id", "is", null);
-    const { error } = await q;
-    if (error) {
+    try {
+      await removeConversationFn({ data: { conversationId: id } });
+      if (!id || id === convId) setConvId(null);
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.invalidateQueries({ queryKey: ["messages"] });
+      toast.success(id ? "Conversation deleted" : "All conversations cleared");
+    } catch {
       toast.error("Couldn't delete. Please try again.");
-      return;
     }
-    if (!id || id === convId) setConvId(null);
-    qc.invalidateQueries({ queryKey: ["conversations"] });
-    toast.success(id ? "Conversation deleted" : "All conversations cleared");
   }
 
   function submit(e?: FormEvent, t = text) {
@@ -101,6 +113,28 @@ function Page() {
         title="Ask your stylist"
         body="Plan a look, match colours, compare outfits or style on a budget — in your own words."
       />
+
+      {wardrobeCount === 0 && (
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-bronze/30 bg-champagne/25 p-4 text-sm">
+          <div className="flex items-center gap-3">
+            <Shirt className="h-5 w-5 text-bronze" />
+            <span>
+              Your wardrobe is currently empty. Outfits are curated strictly from the clothes you
+              own.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="hero"
+            disabled={samples.isPending}
+            onClick={() => samples.mutate()}
+          >
+            <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+            {samples.isPending ? "Loading…" : "Load sample wardrobe"}
+          </Button>
+        </div>
+      )}
+
       <div className="grid gap-6 md:grid-cols-[220px_1fr]">
         <aside className="space-y-1">
           <Button variant="quiet" size="sm" className="mb-2 w-full" onClick={() => setConvId(null)}>
@@ -149,8 +183,22 @@ function Page() {
               <div className="py-10 text-center">
                 <p className="font-display text-2xl">Hello — I'm your VÉSTARA Style Assistant.</p>
                 <p className="mt-2 text-muted-foreground">
-                  I style from the clothes you own. Try one of these:
+                  I style exclusively from the clothes you own ({wardrobeCount} piece
+                  {wardrobeCount === 1 ? "" : "s"} in your wardrobe).
                 </p>
+                {wardrobeCount === 0 && (
+                  <div className="mt-4">
+                    <Button
+                      size="sm"
+                      variant="hero"
+                      disabled={samples.isPending}
+                      onClick={() => samples.mutate()}
+                    >
+                      <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                      {samples.isPending ? "Loading…" : "Load sample wardrobe"}
+                    </Button>
+                  </div>
+                )}
                 <div className="mt-4 flex flex-wrap justify-center gap-2">
                   {PROMPTS.map((p) => (
                     <Button key={p} size="sm" variant="quiet" onClick={() => submit(undefined, p)}>
@@ -171,9 +219,24 @@ function Page() {
                 >
                   {msg.content}
                 </div>
+                {msg.role === "assistant" &&
+                  wardrobeCount === 0 &&
+                  msg.content.includes("sample wardrobe") && (
+                    <div className="mt-2">
+                      <Button
+                        size="sm"
+                        variant="hero"
+                        disabled={samples.isPending}
+                        onClick={() => samples.mutate()}
+                      >
+                        <Sparkles className="mr-1.5 h-3.5 w-3.5" />
+                        {samples.isPending ? "Loading…" : "Load sample wardrobe"}
+                      </Button>
+                    </div>
+                  )}
                 {msg.role === "assistant" && msg.mode === "rules" && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    AI was unavailable — built by VÉSTARA's outfit rules.
+                    Built by VÉSTARA's precision styling rules from your wardrobe.
                   </p>
                 )}
                 {msg.outfit_id && <MessageOutfit id={msg.outfit_id} />}

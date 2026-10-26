@@ -24,4 +24,15 @@ describe("parseIntent", () => {
   it("detects outfit rejection", () => {
     expect(parseIntent("Not for me, try again").intent).toBe("reject");
   });
+  it("detects recommendation for dinner date", () => {
+    const res = parseIntent("Recommend clothes for a romantic dinner date");
+    expect(res.intent).toBe("recommend");
+    expect(res.occasion).toBe("evening");
+  });
+  it("detects user prompt requesting clothes from wardrobe", () => {
+    const res = parseIntent(
+      "it should recommend perfect cloths according to the need which should present from my wardrobe not from outside of the wardrobe",
+    );
+    expect(res.intent).toBe("recommend");
+  });
 });
