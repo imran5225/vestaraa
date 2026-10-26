@@ -159,9 +159,7 @@ async function processImage(
     bmp.close();
 
     const mime = file.type === "image/png" ? "image/png" : "image/jpeg";
-    const blob = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, mime, 0.92),
-    );
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, mime, 0.92));
 
     if (!blob) return { file };
 
@@ -175,7 +173,6 @@ async function processImage(
     return { error: "That image couldn't be read. Try another file." };
   }
 }
-
 
 async function compositeTryOnPhoto(
   modelSrc: string,
@@ -442,7 +439,11 @@ function Onboarding({ onSkip }: { onSkip: () => void }) {
 
   async function skip() {
     const id = await uid();
-    const modelRecord = { user_id: id, onboarding_done: true, updated_at: new Date().toISOString() };
+    const modelRecord = {
+      user_id: id,
+      onboarding_done: true,
+      updated_at: new Date().toISOString(),
+    };
     if (typeof window !== "undefined") {
       localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
     }
@@ -1202,7 +1203,10 @@ function Studio() {
                                 updated_at: new Date().toISOString(),
                               };
                               if (typeof window !== "undefined") {
-                                localStorage.setItem(`vestara_model_${id}`, JSON.stringify(modelRecord));
+                                localStorage.setItem(
+                                  `vestara_model_${id}`,
+                                  JSON.stringify(modelRecord),
+                                );
                               }
                               try {
                                 await supabase.from("virtual_models").upsert(modelRecord);
@@ -1597,10 +1601,7 @@ function Studio() {
           <Button
             variant="hero"
             className="w-full"
-            disabled={
-              run.isPending ||
-              (!garment && !selectedWardrobeItem && !description.trim())
-            }
+            disabled={run.isPending || (!garment && !selectedWardrobeItem && !description.trim())}
             onClick={() => {
               setViewMode("photo");
               run.mutate({});
