@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  categoryToClothType,
-  normalizeColabUrl,
-  pingCatVTONServer,
-} from "@/lib/catvton.service";
+import { categoryToClothType, normalizeColabUrl, pingCatVTONServer } from "@/lib/catvton.service";
 import { runTryOn } from "@/lib/tryon.server";
 import { createMockSupabaseClient, DEMO_USER_ID } from "@/integrations/supabase/mock-client";
 

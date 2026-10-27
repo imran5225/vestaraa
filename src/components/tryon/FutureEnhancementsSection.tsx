@@ -101,7 +101,10 @@ export const FUTURE_ENHANCEMENTS: EnhancementFeature[] = [
     technicalSpecs: [
       { label: "Intelligence", value: "Gemini Pro Multimodal Stylist Engine" },
       { label: "Data Streams", value: "Hyperlocal Weather + Calendar Dress Codes" },
-      { label: "Chromatic Profiling", value: "Seasonal Color Analysis (Spring/Summer/Autumn/Winter)" },
+      {
+        label: "Chromatic Profiling",
+        value: "Seasonal Color Analysis (Spring/Summer/Autumn/Winter)",
+      },
     ],
     previewDescription:
       "Wake up to curated looks tailored to whether it will rain during your 2:00 PM presentation, ensuring fabrics stay breathable and outerwear complements your shoes.",
@@ -375,7 +378,8 @@ export function FutureEnhancementsSection() {
 
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] font-medium text-bronze group-hover:underline inline-flex items-center gap-1">
-                    Preview Spec <ChevronRight className="size-3 group-hover:translate-x-0.5 transition-transform" />
+                    Preview Spec{" "}
+                    <ChevronRight className="size-3 group-hover:translate-x-0.5 transition-transform" />
                   </span>
                 </div>
               </div>
@@ -396,8 +400,8 @@ export function FutureEnhancementsSection() {
               Building the Future of Autonomous Wardrobe Intelligence
             </h4>
             <p className="text-xs text-muted-foreground max-w-xl">
-              These features are staged in private evaluation benchmarks. Have feedback or want early
-              access to a specific module? Join our VIP collector preview.
+              These features are staged in private evaluation benchmarks. Have feedback or want
+              early access to a specific module? Join our VIP collector preview.
             </p>
           </div>
 

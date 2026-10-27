@@ -360,6 +360,9 @@ export async function runTryOn(
     occasion: string | null;
     extras: string | null;
     parentId: string | null;
+    category?: string | null;
+    engine?: "catvton" | "gemini" | "auto" | null;
+    catvtonEndpoint?: string | null;
   },
 ) {
   if (!d.personPath || !d.personPath.trim()) {
@@ -389,18 +392,42 @@ export async function runTryOn(
   let stylingResult: TryOnStyling | null = null;
   let aiWarning: string | null = null;
 
-  // Step 1: Call Gemini image-editing model if API is configured
   const isTest = Boolean(process.env.VITEST || process.env.NODE_ENV === "test");
+
+  // Step 0: Call CatVTON inference if endpoint is provided
+  const catvtonEndpoint = d.catvtonEndpoint || process.env["CATVTON_ENDPOINT"];
+  if (catvtonEndpoint && d.engine !== "gemini" && !isTest && garmentData) {
+    try {
+      const { callCatVTONInference, categoryToClothType } = await import("./catvton.service");
+      const clothType = categoryToClothType(d.category, d.description);
+      const catRes = await callCatVTONInference(catvtonEndpoint, {
+        personBase64: personData.base64,
+        garmentBase64: garmentData.base64,
+        clothType,
+      });
+      if (catRes.resultImageUri) {
+        generatedImageUri = catRes.resultImageUri;
+        aiWarning = catRes.warning ?? null;
+      }
+    } catch (catErr) {
+      console.warn("[CatVTON inference attempt notice]:", catErr);
+      if (d.engine === "catvton") {
+        aiWarning = `CatVTON inference unavailable: ${catErr instanceof Error ? catErr.message : String(catErr)}. Using VÉSTARA Photorealistic Studio Engine.`;
+      }
+    }
+  }
+
+  // Step 1: Call Gemini image-editing model if API is configured and CatVTON did not produce an image
   const apiKey = !isTest && isAiConfigured() ? process.env["GEMINI_API_KEY"] : undefined;
 
   if (isTest) {
     // Automated test suite mock response
     generatedImageUri =
       "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
-  } else if (!apiKey) {
+  } else if (!apiKey && !generatedImageUri) {
     aiWarning =
       "Gemini API key not configured. Garment fitted using VÉSTARA Photorealistic Studio Engine.";
-  } else {
+  } else if (!generatedImageUri && apiKey && d.engine !== "catvton") {
     try {
       const ai = new GoogleGenAI({
         apiKey,

@@ -87,7 +87,12 @@ export function ComingSoonHero() {
                 onChange={(e) => setEmailInput(e.target.value)}
                 className="flex-1 rounded-xl border border-border/80 bg-card px-4 py-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-bronze"
               />
-              <Button type="submit" variant="champagne" size="sm" className="gap-1.5 text-xs h-10 px-4 shrink-0">
+              <Button
+                type="submit"
+                variant="champagne"
+                size="sm"
+                className="gap-1.5 text-xs h-10 px-4 shrink-0"
+              >
                 <BellRing className="size-3.5" /> Notify Me
               </Button>
             </form>

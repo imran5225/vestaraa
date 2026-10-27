@@ -32,13 +32,17 @@ export function categoryToClothType(
   const cat = (category || "").toLowerCase();
   const desc = (description || "").toLowerCase();
 
-  // Check for dresses / overalls
+  // Check for dresses / overalls / gowns
   if (
     cat.includes("dress") ||
+    cat.includes("gown") ||
+    cat.includes("romper") ||
+    cat.includes("robe") ||
     cat.includes("one-piece") ||
     cat.includes("overall") ||
     cat.includes("jumpsuit") ||
     desc.includes("dress") ||
+    desc.includes("gown") ||
     desc.includes("jumpsuit")
   ) {
     return "overall";
@@ -360,7 +364,9 @@ export async function callCatVTONInference(
       } else if (restRes.status !== 404 && restRes.status !== 405) {
         // Real server error from REST route
         const errText = await restRes.text().catch(() => "");
-        console.warn(`[CatVTON] REST endpoint returned status ${restRes.status}: ${errText.slice(0, 150)}`);
+        console.warn(
+          `[CatVTON] REST endpoint returned status ${restRes.status}: ${errText.slice(0, 150)}`,
+        );
       }
     } catch (restErr) {
       if (restErr instanceof Error && restErr.name === "AbortError") {
