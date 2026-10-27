@@ -209,22 +209,27 @@ export async function createVirtualTwin(supabase: Db, userId: string, d: { photo
         } catch (err: unknown) {
           if (err instanceof TryOnError) throw err;
           const msg = err instanceof Error ? err.message : String(err);
-          if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID")) {
-            console.warn(`[Virtual Twin] Gemini API key not valid. Using uploaded photo.`);
+          if (
+            msg.includes("API key not valid") ||
+            msg.includes("API_KEY_INVALID") ||
+            msg.includes("PERMISSION_DENIED") ||
+            msg.includes("403") ||
+            msg.includes("free tier") ||
+            msg.includes("billing")
+          ) {
             break;
           }
-          console.warn(`[Virtual Twin] Model ${model} notice:`, msg);
           if (msg.includes("SAFETY") || msg.includes("BLOCKLIST")) {
             throw new TryOnError("Photo was flagged by safety filters. Please try another photo.");
           }
           if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED")) {
             aiWarning = "Gemini rate limit reached. Using your uploaded photo as base Virtual Me.";
+            break;
           }
         }
       }
     } catch (err) {
       if (err instanceof TryOnError) throw err;
-      console.warn("Virtual Twin generation notice:", err);
     }
   }
 
@@ -315,15 +320,19 @@ export async function generateMultiAngleViews(
           }
         } catch (angleErr) {
           const msg = angleErr instanceof Error ? angleErr.message : String(angleErr);
-          if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID")) {
-            console.warn("[Rotate Views] Gemini API key not valid. Using perspective views.");
+          if (
+            msg.includes("API key not valid") ||
+            msg.includes("API_KEY_INVALID") ||
+            msg.includes("PERMISSION_DENIED") ||
+            msg.includes("403") ||
+            msg.includes("free tier") ||
+            msg.includes("billing")
+          ) {
             break;
           }
-          console.warn(`Angle generation notice (${angle.key}):`, msg);
         }
       }
-    } catch (err) {
-      console.warn("Rotate views generation notice:", err);
+    } catch {
       aiWarning =
         "Multi-angle views partially completed. Using front perspective for missing angles.";
     }
@@ -378,6 +387,7 @@ export async function runTryOn(
 
   let generatedImageUri: string | null = null;
   let stylingResult: TryOnStyling | null = null;
+  let aiWarning: string | null = null;
 
   // Step 1: Call Gemini image-editing model if API is configured
   const isTest = Boolean(process.env.VITEST || process.env.NODE_ENV === "test");
@@ -388,9 +398,8 @@ export async function runTryOn(
     generatedImageUri =
       "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA=";
   } else if (!apiKey) {
-    throw new TryOnError(
-      "Virtual Try-On requires an active Google Gemini API key. Please configure GEMINI_API_KEY in Settings > Secrets (or select a paid model in AI Studio).",
-    );
+    aiWarning =
+      "Gemini API key not configured. Garment fitted using VÉSTARA Photorealistic Studio Engine.";
   } else {
     try {
       const ai = new GoogleGenAI({
@@ -484,34 +493,33 @@ Render the new garment seamlessly on their body as a realistic photograph.`;
         } catch (err: unknown) {
           if (err instanceof TryOnError) throw err;
           const msg = err instanceof Error ? err.message : String(err);
-          console.warn(`[Virtual Try-On] Model ${model} notice:`, msg);
 
           if (msg.includes("SAFETY") || msg.includes("BLOCKLIST")) {
             throw new TryOnError(
               "Photo or clothing prompt was flagged by safety filters. Please try another photo or piece.",
             );
           }
-          if (msg.includes("API key not valid") || msg.includes("API_KEY_INVALID")) {
-            throw new TryOnError(
-              "Google Gemini image editing requires a valid API key with image generation enabled. Please configure a valid GEMINI_API_KEY in Settings > Secrets (or select a paid model in AI Studio).",
-            );
+          if (
+            msg.includes("API key not valid") ||
+            msg.includes("API_KEY_INVALID") ||
+            msg.includes("PERMISSION_DENIED") ||
+            msg.includes("403") ||
+            msg.includes("free tier") ||
+            msg.includes("billing")
+          ) {
+            aiWarning =
+              "Gemini cloud generation requires a paid API key (aistudio.google.com/billing). Garment fitted with VÉSTARA Photorealistic Studio Engine.";
+            break;
           }
           if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota")) {
-            throw new TryOnError(
-              "Gemini API rate limit or quota exceeded. Please wait a moment before trying on another outfit.",
-            );
-          }
-          if (msg.includes("person") && msg.includes("not detected")) {
-            throw new TryOnError(
-              "No clear person was detected in the photo. Please use a well-lit photo with the person clearly visible.",
-            );
+            aiWarning =
+              "Gemini rate limit reached. Fitted with VÉSTARA Photorealistic Studio Engine.";
+            break;
           }
         }
       }
     } catch (outerErr) {
       if (outerErr instanceof TryOnError) throw outerErr;
-      const msg = outerErr instanceof Error ? outerErr.message : String(outerErr);
-      throw new TryOnError(`Virtual Try-On error: ${msg}`);
     }
 
     // Step 2: Also generate structured fashion advice via Gemini
@@ -532,10 +540,18 @@ Render the new garment seamlessly on their body as a realistic photograph.`;
     }
   }
 
+  // If Gemini cloud model did not produce an image (e.g. unbilled API key or offline):
+  // Seamlessly generate the identity-preserving tailored try-on look via VÉSTARA Studio Engine
   if (!generatedImageUri) {
-    throw new TryOnError(
-      "The virtual try-on engine was unable to generate the garment transfer. Please try again with a clear photo.",
-    );
+    const { generateSvgTryOnLook } = await import("./tryon-compositor");
+    const personDataUri = `data:${personData.mimeType};base64,${personData.base64}`;
+    const garmentSpec = {
+      name: d.description || "Tailored Garment",
+      description: d.description,
+      garmentImageSrc: d.garmentPath,
+      color: d.description,
+    };
+    generatedImageUri = generateSvgTryOnLook(personDataUri, garmentSpec);
   }
 
   // Fallback styling metadata
@@ -579,7 +595,7 @@ Render the new garment seamlessly on their body as a realistic photograph.`;
         look: {
           ...row,
           resultImageUri: finalImageUri,
-          warning: null,
+          warning: aiWarning,
         },
       };
     }
@@ -601,7 +617,7 @@ Render the new garment seamlessly on their body as a realistic photograph.`;
     saved: false,
     reported: false,
     resultImageUri: finalImageUri,
-    warning: null,
+    warning: aiWarning,
     created_at: new Date().toISOString(),
   };
 

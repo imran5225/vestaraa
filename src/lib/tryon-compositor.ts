@@ -872,6 +872,68 @@ export function generateSvgTryOnLook(
         <polygon points="${neckRightX},${shoulderY + 2} ${cx + shoulderHalfW * 0.45},${chestY - 14} ${cx + shoulderHalfW * 0.32},${chestY - 6} ${cx},${waistY - 8} ${cx + 10},${shoulderY + 6}" fill="${col.darkHex}" />
       </g>
     `;
+  } else if (cat === "bottom") {
+    const ankleY = height * 0.94;
+    const isDenim = garment.name.toLowerCase().includes("jean") || col.hex === "#233B5D";
+
+    garmentPathSvg = `
+      <g filter="url(#garmentShadow)">
+        <path d="M ${cx - waistHalfW} ${waistY}
+                 L ${cx + waistHalfW} ${waistY}
+                 Q ${cx + hipHalfW * 1.05} ${(waistY + hipY) / 2} ${cx + hipHalfW} ${hipY}
+                 Q ${cx + hipHalfW * 0.95} ${kneeY} ${cx + hipHalfW * 0.72} ${ankleY}
+                 L ${cx + 8} ${ankleY}
+                 L ${cx} ${hipY + (kneeY - hipY) * 0.3}
+                 L ${cx - 8} ${ankleY}
+                 L ${cx - hipHalfW * 0.72} ${ankleY}
+                 Q ${cx - hipHalfW * 0.95} ${kneeY} ${cx - hipHalfW} ${hipY}
+                 Q ${cx - hipHalfW * 1.05} ${(waistY + hipY) / 2} ${cx - waistHalfW} ${waistY}
+                 Z" fill="url(#garmentGrad)" />
+        <!-- Center fly seam & crease -->
+        <path d="M ${cx} ${waistY} L ${cx} ${hipY + 12} Q ${cx} ${hipY + 22} ${cx + 10} ${hipY + 24}"
+              stroke="${isDenim ? "#C29B38" : col.isDark ? "rgba(255,255,255,0.2)" : "rgba(0,0,0,0.2)"}" stroke-width="1.5" fill="none" />
+        <path d="M ${cx - hipHalfW * 0.45} ${hipY + 20} L ${cx - hipHalfW * 0.38} ${ankleY - 6}"
+              stroke="${col.isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)"}" stroke-width="1.2" fill="none" />
+        <path d="M ${cx + hipHalfW * 0.45} ${hipY + 20} L ${cx + hipHalfW * 0.38} ${ankleY - 6}"
+              stroke="${col.isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)"}" stroke-width="1.2" fill="none" />
+      </g>
+    `;
+  } else if (cat === "outfit") {
+    const ankleY = height * 0.94;
+    const hemY = hipY + height * 0.06;
+
+    garmentPathSvg = `
+      <g filter="url(#garmentShadow)">
+        <!-- Trousers -->
+        <path d="M ${cx - waistHalfW} ${waistY}
+                 L ${cx + waistHalfW} ${waistY}
+                 Q ${cx + hipHalfW * 1.05} ${(waistY + hipY) / 2} ${cx + hipHalfW} ${hipY}
+                 Q ${cx + hipHalfW * 0.95} ${kneeY} ${cx + hipHalfW * 0.72} ${ankleY}
+                 L ${cx + 8} ${ankleY}
+                 L ${cx} ${hipY + (kneeY - hipY) * 0.3}
+                 L ${cx - 8} ${ankleY}
+                 L ${cx - hipHalfW * 0.72} ${ankleY}
+                 Q ${cx - hipHalfW * 0.95} ${kneeY} ${cx - hipHalfW} ${hipY}
+                 Q ${cx - hipHalfW * 1.05} ${(waistY + hipY) / 2} ${cx - waistHalfW} ${waistY}
+                 Z" fill="#2C2E33" />
+        <!-- Layered blazer -->
+        <path d="M ${cx - shoulderHalfW * 0.28} ${shoulderY + 2}
+                 L ${cx + shoulderHalfW * 1.05} ${shoulderY + 8}
+                 L ${cx + shoulderHalfW * 1.15} ${chestY + 8}
+                 Q ${cx + waistHalfW * 1.18} ${waistY} ${cx + hipHalfW * 1.08} ${hipY}
+                 L ${cx + hipHalfW * 1.04} ${hemY}
+                 L ${cx - hipHalfW * 1.04} ${hemY}
+                 L ${cx - hipHalfW * 1.08} ${hipY}
+                 Q ${cx - waistHalfW * 1.18} ${waistY} ${cx - shoulderHalfW * 1.15} ${chestY + 8}
+                 L ${cx - shoulderHalfW * 1.05} ${shoulderY + 8}
+                 Z" fill="url(#garmentGrad)" />
+        <!-- Inner crisp white shirt -->
+        <polygon points="${cx - 16},${shoulderY + 4} ${cx},${waistY - 8} ${cx + 16},${shoulderY + 4}" fill="#FFFFFF" />
+        <!-- Lapels -->
+        <polygon points="${cx - shoulderHalfW * 0.28},${shoulderY + 2} ${cx - shoulderHalfW * 0.45},${chestY - 14} ${cx - shoulderHalfW * 0.32},${chestY - 6} ${cx},${waistY - 8} ${cx - 10},${shoulderY + 6}" fill="${col.darkHex}" />
+        <polygon points="${cx + shoulderHalfW * 0.28},${shoulderY + 2} ${cx + shoulderHalfW * 0.45},${chestY - 14} ${cx + shoulderHalfW * 0.32},${chestY - 6} ${cx},${waistY - 8} ${cx + 10},${shoulderY + 6}" fill="${col.darkHex}" />
+      </g>
+    `;
   } else {
     // Fitted Top / Shirt
     const hemY = waistY + (waistY - chestY) * 0.4;

@@ -8,11 +8,17 @@ import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
-export const NAVIGATION_LINKS = [
+export interface NavLinkItem {
+  to: string;
+  label: string;
+  badge?: string;
+}
+
+export const NAVIGATION_LINKS: readonly NavLinkItem[] = [
   { to: "/", label: "Home" },
   { to: "/wardrobe", label: "My Wardrobe" },
   { to: "/stylist", label: "AI Stylist" },
-  { to: "/try-on", label: "Virtual Try-On" },
+  { to: "/try-on", label: "Virtual Try-On", badge: "Soon" },
   { to: "/recommendations", label: "Looks" },
   { to: "/profile", label: "Profile" },
 ] as const;
@@ -77,10 +83,15 @@ export function Navbar({ className }: { className?: string }) {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-full px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="group inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
               activeProps={{ className: "bg-secondary font-medium text-foreground shadow-xs" }}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.badge && (
+                <span className="rounded-full border border-bronze/35 bg-bronze/10 px-1.5 py-0.2 text-[10px] font-semibold tracking-wider text-bronze uppercase">
+                  {item.badge}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -94,10 +105,15 @@ export function Navbar({ className }: { className?: string }) {
             <Link
               key={item.to}
               to={item.to}
-              className="rounded-full px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+              className="inline-flex items-center gap-1 rounded-full px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
               activeProps={{ className: "bg-secondary font-medium text-foreground shadow-xs" }}
             >
-              {item.label}
+              <span>{item.label}</span>
+              {item.badge && (
+                <span className="rounded-full border border-bronze/35 bg-bronze/10 px-1.5 py-0.2 text-[9px] font-semibold text-bronze uppercase">
+                  {item.badge}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
@@ -149,7 +165,14 @@ export function Navbar({ className }: { className?: string }) {
                     className="flex items-center justify-between rounded-xl px-4 py-2.5 text-sm text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
                     activeProps={{ className: "bg-secondary font-medium text-foreground" }}
                   >
-                    <span>{item.label}</span>
+                    <span className="flex items-center gap-2">
+                      <span>{item.label}</span>
+                      {item.badge && (
+                        <span className="rounded-full border border-bronze/35 bg-bronze/10 px-2 py-0.5 text-[10px] font-semibold text-bronze uppercase">
+                          {item.badge}
+                        </span>
+                      )}
+                    </span>
                     <span className="text-xs text-taupe">→</span>
                   </Link>
                 ))}

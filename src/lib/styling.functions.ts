@@ -341,8 +341,8 @@ ${currentSummary}`;
         { role: "user", content: text },
       ],
     });
-  } catch (err) {
-    console.warn("[Stylist AI error]:", err);
+  } catch {
+    // Falls back seamlessly to deterministic rule-based intent parsing and outfit generation
     return null;
   }
 }

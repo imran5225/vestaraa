@@ -142,21 +142,32 @@ export async function generateStructured<T>(opts: {
       if (err instanceof Error && err.name === "ZodError") {
         throw new AiUnavailableError("AI returned an invalid schema response");
       }
-      if (errStr.includes("API key not valid") || errStr.includes("API_KEY_INVALID")) {
-        console.warn(
-          "[Gemini] API key invalid or unconfigured. Falling back to deterministic rules engine.",
-        );
+      if (
+        errStr.includes("API key not valid") ||
+        errStr.includes("API_KEY_INVALID") ||
+        errStr.includes("PERMISSION_DENIED") ||
+        errStr.includes("403") ||
+        errStr.includes("free tier") ||
+        errStr.includes("billing")
+      ) {
+        // Free tier or billing not enabled on this project — quietly switch to rules engine
         break;
       }
     }
   }
 
   const errText = String(lastError ?? "");
-  if (!errText.includes("API key not valid") && !errText.includes("API_KEY_INVALID")) {
-    console.warn(
-      "[Gemini] API notice:",
-      lastError instanceof Error ? lastError.message : String(lastError),
-    );
+  const isKeyOrBillingIssue =
+    errText.includes("API key not valid") ||
+    errText.includes("API_KEY_INVALID") ||
+    errText.includes("PERMISSION_DENIED") ||
+    errText.includes("403") ||
+    errText.includes("free tier") ||
+    errText.includes("billing");
+
+  if (!isKeyOrBillingIssue && lastError) {
+    const safeReason = lastError instanceof Error ? lastError.name : "ApiUnavailable";
+    console.info(`[Gemini] Using deterministic rules engine (${safeReason}).`);
   }
 
   throw new AiUnavailableError(

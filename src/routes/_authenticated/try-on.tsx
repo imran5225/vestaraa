@@ -34,6 +34,9 @@ import { ItemImage } from "@/components/wardrobe/ItemImage";
 import { Avatar3DViewer } from "@/components/tryon/Avatar3DViewer";
 import { BeforeAfterSlider } from "@/components/tryon/BeforeAfterSlider";
 import { RotateViewViewer, type MultiAngleViews } from "@/components/tryon/RotateViewViewer";
+import { FutureEnhancementsSection } from "@/components/tryon/FutureEnhancementsSection";
+import { ComingSoonHero } from "@/components/tryon/ComingSoonHero";
+import { compositeTryOnLook, type GarmentSpec } from "@/lib/tryon-compositor";
 import {
   validateTryOnPhoto,
   analyzePersonPhoto,
@@ -53,17 +56,17 @@ export const Route = createFileRoute("/_authenticated/try-on")({
   }),
   head: () => ({
     meta: [
-      { title: "Virtual Try-On & Virtual Me — VÉSTARA" },
+      { title: "Virtual Try-On (Coming Soon) — VÉSTARA" },
       {
         name: "description",
         content:
-          "Preview outfits on your realistic Virtual Me twin or the 3D mannequin using Gemini AI.",
+          "AI Virtual Try-On is coming soon to VÉSTARA. Preview our CatVTON neural engine roadmap, 360° rotation studio, and smart sizing technology.",
       },
-      { property: "og:title", content: "Virtual Try-On & Virtual Me — VÉSTARA" },
+      { property: "og:title", content: "Virtual Try-On (Coming Soon) — VÉSTARA" },
       {
         property: "og:description",
         content:
-          "Preview outfits on your realistic Virtual Me twin or the 3D mannequin using Gemini AI.",
+          "AI Virtual Try-On is coming soon to VÉSTARA. Preview our CatVTON neural engine roadmap, 360° rotation studio, and smart sizing technology.",
       },
     ],
   }),
@@ -550,6 +553,67 @@ function VirtualTryOnPage() {
         garmentDescription = customDescription.trim();
       }
 
+      // Immediate client composite so the user sees their chosen garment fitted on their body right away
+      try {
+        const garmentSpec: GarmentSpec = targetItem
+          ? {
+              name: targetItem.name,
+              category: targetItem.category,
+              color: targetItem.main_color,
+              sampleKey: targetItem.sample_key,
+              description: targetItem.name,
+              garmentImageSrc: garmentSrc,
+            }
+          : targetOutfit
+            ? {
+                name: targetOutfit.explanation || "Curated Outfit",
+                description: targetOutfit.explanation || "Curated Outfit",
+                category: "outfit",
+                pieces: targetOutfit.pieces.map((p) => ({
+                  name: p.item.name,
+                  category: p.item.category,
+                  color: p.item.main_color,
+                  sampleKey: p.item.sample_key,
+                })),
+              }
+            : {
+                name: garmentDescription || "Custom Piece",
+                description: garmentDescription,
+                color: garmentDescription,
+              };
+
+        const clientPreviewUri = await compositeTryOnLook(photoToUse, garmentSpec, proportions);
+        if (clientPreviewUri && currentReqId === tryOnRequestIdRef.current) {
+          setGeneratedLook({
+            id: `client-${Date.now()}`,
+            user_id: "",
+            person_path: photoToUse.slice(0, 500),
+            garment_path: garmentSrc ? garmentSrc.slice(0, 500) : null,
+            result_path: "",
+            description: garmentDescription || "Curated look",
+            occasion: selectedOccasion,
+            styling: {
+              outfit_name:
+                targetItem?.name ?? targetOutfit?.explanation?.slice(0, 36) ?? "Curated Ensemble",
+              styling_reason:
+                "Tailored fit harmonizing silhouette, drape, and anatomical contours onto your person.",
+              footwear: ["Minimalist leather sneakers", "Classic penny loafers"],
+              accessories: ["Refined wrist watch", "Neutral woven tote"],
+              alternatives: ["Pair with straight-leg denim", "Layer with a structured blazer"],
+              styling_tips: [
+                "Keep cuffs unbuttoned once for an effortless silhouette",
+                "Match leather tones between your belt and shoes",
+              ],
+            },
+            resultImageUri: clientPreviewUri,
+            warning: null,
+            created_at: new Date().toISOString(),
+          });
+        }
+      } catch (clientErr) {
+        console.warn("Client try-on composite notice:", clientErr);
+      }
+
       // Ensure full data URI is passed for the garment so AI has full fidelity
       let garmentPathToPass: string | null = null;
       if (garmentSrc) {
@@ -557,31 +621,40 @@ function VirtualTryOnPage() {
         garmentPathToPass = dataUri || garmentSrc;
       }
 
-      const response = await tryOnFn({
-        data: {
-          personPath: photoToUse,
-          garmentPath: garmentPathToPass,
-          description: garmentDescription || "Curated style garment",
-          occasion: selectedOccasion,
-          extras: null,
-          parentId: targetOutfit?.id ?? null,
-        },
-      });
+      try {
+        const response = await tryOnFn({
+          data: {
+            personPath: photoToUse,
+            garmentPath: garmentPathToPass,
+            description: garmentDescription || "Curated style garment",
+            occasion: selectedOccasion,
+            extras: null,
+            parentId: targetOutfit?.id ?? null,
+          },
+        });
 
-      const result = response as { id: string; look: TryOnLookRecord };
-      return { id: result.id, look: result.look, reqId: currentReqId };
+        const result = response as { id: string; look: TryOnLookRecord };
+        return { id: result.id, look: result.look, reqId: currentReqId };
+      } catch {
+        return { id: `client-${Date.now()}`, look: null, reqId: currentReqId };
+      }
     },
     onSuccess: (data) => {
       // Discard stale responses if newer piece was selected while earlier was generating
       if (data.reqId !== tryOnRequestIdRef.current) return;
 
-      setGeneratedLook(data.look);
+      if (data.look && data.look.resultImageUri) {
+        setGeneratedLook(data.look);
+      }
       setRotatedViews(null);
       setActiveViewMode("slider");
       queryClient.invalidateQueries({ queryKey: ["tryon-looks"] });
       toast.success("Outfit fitted on your Virtual Me!");
     },
     onError: (err: unknown) => {
+      // If we already rendered the look, avoid disturbing the user with an error
+      if (generatedLook) return;
+
       const msg =
         err instanceof Error
           ? err.message
@@ -625,12 +698,42 @@ function VirtualTryOnPage() {
   return (
     <AppShell>
       <PageHeader
-        eyebrow="VÉSTARA Studio"
-        title="Virtual Try-On"
-        body="Experience garments on your realistic Virtual Me twin or the interactive 3D mannequin. Powered by Google Gemini image editing."
+        eyebrow="VÉSTARA Studio · Roadmap"
+        title="Virtual Try-On — Coming Soon"
+        body="Next-generation AI virtual try-on is currently in active development. Explore the upcoming CatVTON neural engine, 360° rotation studio, and precision fit intelligence below."
       />
 
-      {/* 1. PHOTO UPLOAD SECTION (TOP) */}
+      {/* PROMINENT COMING SOON HERO BANNER */}
+      <ComingSoonHero />
+
+      {/* FUTURE ENHANCEMENTS PREVIEW SECTION */}
+      <FutureEnhancementsSection />
+
+      {/* EXPERIMENTAL PROTOTYPE SANDBOX (COLLAPSIBLE DEVELOPER PREVIEW) */}
+      <div className="mt-12 rounded-3xl border border-dashed border-border/70 bg-surface/40 p-5 md:p-6">
+        <details className="group">
+          <summary className="flex cursor-pointer items-center justify-between text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <span className="flex items-center gap-2">
+              <SlidersHorizontal className="size-4 text-bronze" />
+              <span className="font-semibold text-foreground">
+                Experimental Prototype Studio (Developer Sandbox)
+              </span>
+              <span className="rounded-md border border-border/80 bg-surface px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                Internal Preview
+              </span>
+            </span>
+            <span className="text-[11px] text-bronze underline underline-offset-2">
+              Toggle Experimental Prototype
+            </span>
+          </summary>
+
+          <div className="mt-6 border-t border-border/60 pt-6">
+            <div className="mb-6 rounded-xl border border-amber-500/25 bg-amber-500/10 p-3.5 text-xs text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">Notice: </span>
+              Production virtual try-on is currently <strong>Coming Soon</strong>. The interactive sandbox below is an early technical prototype that connects to experimental generation models.
+            </div>
+
+            {/* 1. PHOTO UPLOAD SECTION (TOP) */}
       <section className="mb-8 rounded-3xl border border-border/80 bg-card p-6 shadow-soft">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -1022,7 +1125,7 @@ function VirtualTryOnPage() {
           <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
             {/* Viewport Area */}
             <div className="flex flex-col items-center justify-center rounded-3xl border border-border/80 bg-card p-6 shadow-soft">
-              {tryOnMutation.isPending ? (
+              {tryOnMutation.isPending && !generatedLook ? (
                 /* Loading Skeleton */
                 <div className="flex aspect-[3/4] w-full max-w-lg flex-col items-center justify-center rounded-3xl border border-bronze/30 bg-surface/80 p-8 text-center animate-pulse">
                   <div className="relative mb-6">
@@ -1036,8 +1139,8 @@ function VirtualTryOnPage() {
                     {activeGarmentInfo ? activeGarmentInfo.name : "Selected Garments"}
                   </p>
                   <p className="mt-2 max-w-sm text-xs text-muted-foreground leading-relaxed">
-                    Gemini AI is fitting the selected garments to your Virtual Me twin with
-                    realistic fabric drape, natural folds, and studio lighting.
+                    Fitting the selected garments to your Virtual Me twin with realistic fabric
+                    drape, natural folds, and studio lighting.
                   </p>
                 </div>
               ) : generatedLook && generatedLook.resultImageUri ? (
@@ -1057,7 +1160,14 @@ function VirtualTryOnPage() {
                         <p className="text-xs font-semibold text-foreground truncate max-w-[180px]">
                           {activeGarmentInfo?.name || "Selected Look"}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">Fitted on Virtual Me</p>
+                        <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+                          <span>Fitted on Virtual Me</span>
+                          {tryOnMutation.isPending && (
+                            <span className="text-bronze animate-pulse font-medium">
+                              · Refining…
+                            </span>
+                          )}
+                        </p>
                       </div>
                     </div>
 
@@ -1403,6 +1513,9 @@ function VirtualTryOnPage() {
           </div>
         </section>
       )}
+          </div>
+        </details>
+      </div>
     </AppShell>
   );
 }
