@@ -7,6 +7,7 @@ interface BeforeAfterSliderProps {
   beforeImage: string;
   afterImage: string;
   outfitName?: string;
+  engineName?: string;
   onTryAnotherOutfit?: () => void;
   className?: string;
 }
@@ -15,6 +16,7 @@ export function BeforeAfterSlider({
   beforeImage,
   afterImage,
   outfitName = "Custom Ensemble",
+  engineName,
   onTryAnotherOutfit,
   className,
 }: BeforeAfterSliderProps) {
@@ -145,7 +147,7 @@ export function BeforeAfterSlider({
         </div>
         <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-1.5 rounded-full bg-bronze/90 px-3 py-1 text-xs font-medium text-white shadow-sm backdrop-blur-md">
           <Sparkles className="size-3.5" />
-          Virtual Try-On
+          {engineName ? `${engineName}` : "Virtual Try-On"}
         </div>
 
         {/* Bottom Helper Bar */}

@@ -10,6 +10,9 @@ const input = z.object({
   occasion: z.string().trim().max(100).nullable().optional(),
   extras: z.string().trim().max(500).nullable().optional(),
   parentId: z.string().uuid().nullable().optional(),
+  category: z.string().trim().max(100).nullable().optional(),
+  engine: z.enum(["catvton", "gemini", "auto"]).nullable().optional(),
+  catvtonEndpoint: z.string().trim().max(1000).nullable().optional(),
 });
 
 export const generateTryOn = createServerFn({ method: "POST" })
@@ -26,7 +29,21 @@ export const generateTryOn = createServerFn({ method: "POST" })
       occasion: data.occasion ?? null,
       extras: data.extras ?? null,
       parentId: data.parentId ?? null,
+      category: data.category ?? null,
+      engine: data.engine ?? "auto",
+      catvtonEndpoint: data.catvtonEndpoint ?? null,
     });
+  });
+
+const testColabInput = z.object({
+  endpoint: z.string().trim().min(3).max(1000),
+});
+
+export const testCatVTONEndpoint = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => testColabInput.parse(d))
+  .handler(async ({ data }) => {
+    const { pingCatVTONServer } = await import("./catvton.service");
+    return pingCatVTONServer(data.endpoint);
   });
 
 const twinInput = z.object({
